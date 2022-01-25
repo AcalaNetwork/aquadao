@@ -2,8 +2,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::pallet_prelude::*;
+use frame_support::{pallet_prelude::*, transactional};
 use frame_system::pallet_prelude::*;
+
+use orml_traits::MultiCurrency;
+
+use acala_primitives::Balance;
+use module_support::{Ratio, Rate};
 
 mod mock;
 mod tests;
@@ -17,17 +22,37 @@ pub mod module {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+		type Currency: MultiCurrency<Self::AccountId>;
 	}
+
+	#[pallet::storage]
+	#[pallet::getter(fn treasury_share)]
+	pub type TreasuryShare<T> = StorageValue<_, Ratio, ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn dao_share)]
+	pub type DaoShare<T> = StorageValue<_, Ratio, ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn unstake_fee)]
+	pub type UnstakeFee<T> = StorageValue<_, Rate, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
-		Dummy,
+		InsufficientBalance,
 	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(fn deposit_event)]
 	pub enum Event<T: Config> {
-		Dummy,
+		Staked {
+			who: T::AccountId,
+			amount: Balance,
+		},
+		Unstaked {
+			who: T::AccountId,
+			amount: Balance,
+		}
 	}
 
 	#[pallet::pallet]
@@ -37,7 +62,41 @@ pub mod module {
 	impl<T: Config> Hooks<T::BlockNumber> for Pallet<T> {}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T> {}
+	impl<T: Config> Pallet<T> {
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn stake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			//TODO: stake
+
+			Self::deposit_event(Event::<T>::Staked { who, amount });
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn unstake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			//TODO: unstake
+
+			Self::deposit_event(Event::<T>::Unstaked { who, amount });
+			Ok(())
+		}
+	}
 }
 
-impl<T: Config> Pallet<T> {}
+impl<T: Config> Pallet<T> {
+	pub fn mint(_to: T::AccountId, _amount: Balance) -> DispatchResult {
+		//TODO: mint
+
+		Ok(())
+	}
+
+	fn inflate(_amount: Balance) -> DispatchResult {
+		//TODO: inflate
+
+		Ok(())
+	}
+}
