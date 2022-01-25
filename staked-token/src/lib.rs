@@ -2,12 +2,12 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{pallet_prelude::*, transactional};
+use frame_support::{pallet_prelude::*, transactional, traits::Get};
 use frame_system::pallet_prelude::*;
 
 use orml_traits::MultiCurrency;
 
-use acala_primitives::Balance;
+use acala_primitives::{Balance, CurrencyId};
 use module_support::{Ratio, Rate};
 
 mod mock;
@@ -22,16 +22,15 @@ pub mod module {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-		type Currency: MultiCurrency<Self::AccountId>;
+
+		type Currency: MultiCurrency<Self::AccountId, Balance = Balance, CurrencyId = CurrencyId>;
+
+		#[pallet::constant]
+		type TreasuryShare: Get<Ratio>;
+
+		#[pallet::constant]
+		type DaoShare: Get<Ratio>;
 	}
-
-	#[pallet::storage]
-	#[pallet::getter(fn treasury_share)]
-	pub type TreasuryShare<T> = StorageValue<_, Ratio, ValueQuery>;
-
-	#[pallet::storage]
-	#[pallet::getter(fn dao_share)]
-	pub type DaoShare<T> = StorageValue<_, Ratio, ValueQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn unstake_fee)]
