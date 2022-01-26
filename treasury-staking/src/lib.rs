@@ -49,7 +49,7 @@ pub mod module {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		InsufficientBalance,
+		Dummy,
 	}
 
 	#[pallet::event]
