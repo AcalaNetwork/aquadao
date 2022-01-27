@@ -2,7 +2,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{pallet_prelude::*, traits::{Get, EnsureOrigin}, transactional, PalletId};
+use frame_support::{
+	pallet_prelude::*,
+	traits::{EnsureOrigin, Get},
+	transactional, PalletId,
+};
 use frame_system::pallet_prelude::*;
 use sp_runtime::{
 	traits::{AccountIdConversion, CheckedAdd, CheckedSub, One, Zero},
@@ -34,7 +38,8 @@ pub mod module {
 
 		type Currency: MultiCurrency<Self::AccountId, Balance = Balance, CurrencyId = CurrencyId>;
 
-		/// Origin required to update financial parameters, like unstake fee rate, inflation rate per block etc.
+		/// Origin required to update financial parameters, like unstake fee rate, inflation rate
+		/// per block etc.
 		type UpdateParamsOrigin: EnsureOrigin<Self::Origin>;
 
 		#[pallet::constant]
@@ -87,7 +92,7 @@ pub mod module {
 		},
 		InflationRatePerBlockUpdated {
 			rate: Rate,
-		}
+		},
 	}
 
 	#[pallet::pallet]
