@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{pallet_prelude::*, transactional, traits::EnsureOrigin};
+use frame_support::{pallet_prelude::*, traits::EnsureOrigin, transactional};
 use frame_system::pallet_prelude::*;
 use sp_runtime::FixedI128;
 
@@ -78,7 +78,7 @@ pub mod module {
 			subscription_id: SubscriptionId,
 			payment_amount: Balance,
 			received_amount: Balance,
-		}
+		},
 	}
 
 	#[pallet::pallet]
@@ -102,12 +102,22 @@ pub mod module {
 
 		#[pallet::weight(0)]
 		#[transactional]
-		pub fn subscribe(origin: OriginFor<T>, subscription_id: SubscriptionId, payment_amount: Balance, _min_target_amount: Balance) -> DispatchResult {
+		pub fn subscribe(
+			origin: OriginFor<T>,
+			subscription_id: SubscriptionId,
+			payment_amount: Balance,
+			_min_target_amount: Balance,
+		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
 			//TODO: subscribe
 
-			Self::deposit_event(Event::<T>::Subscribed { who, subscription_id, payment_amount, received_amount: 0 });
+			Self::deposit_event(Event::<T>::Subscribed {
+				who,
+				subscription_id,
+				payment_amount,
+				received_amount: 0,
+			});
 			Ok(())
 		}
 	}
