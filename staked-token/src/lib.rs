@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{pallet_prelude::*, traits::Get, transactional, PalletId};
+use frame_support::{pallet_prelude::*, traits::{Get, EnsureOrigin}, transactional, PalletId};
 use frame_system::pallet_prelude::*;
 use sp_runtime::{
 	traits::{AccountIdConversion, CheckedAdd, CheckedSub, One, Zero},
@@ -33,6 +33,9 @@ pub mod module {
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 
 		type Currency: MultiCurrency<Self::AccountId, Balance = Balance, CurrencyId = CurrencyId>;
+
+		/// Origin required to update financial parameters, like unstake fee rate, inflation rate per block etc.
+		type UpdateParamsOrigin: EnsureOrigin<Self::Origin>;
 
 		#[pallet::constant]
 		type TreasuryShare: Get<Ratio>;
@@ -79,6 +82,12 @@ pub mod module {
 			amount: Balance,
 			received: Balance,
 		},
+		UnstakeFeeRateUpdated {
+			rate: Rate,
+		},
+		InflationRatePerBlockUpdated {
+			rate: Rate,
+		}
 	}
 
 	#[pallet::pallet]
@@ -127,6 +136,24 @@ pub mod module {
 			Self::deposit_event(Event::<T>::Unstaked { who, amount, received });
 			Ok(())
 		}
+
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn update_unstake_fee_rate(origin: OriginFor<T>, rate: Rate) -> DispatchResult {
+			T::UpdateParamsOrigin::ensure_origin(origin)?;
+			UnstakeFeeRate::<T>::put(rate);
+			Self::deposit_event(Event::<T>::UnstakeFeeRateUpdated { rate });
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn update_inflation_rate_per_block(origin: OriginFor<T>, rate: Rate) -> DispatchResult {
+			T::UpdateParamsOrigin::ensure_origin(origin)?;
+			InflationRatePerBlock::<T>::put(rate);
+			Self::deposit_event(Event::<T>::InflationRatePerBlockUpdated { rate });
+			Ok(())
+		}
 	}
 }
 
@@ -171,7 +198,7 @@ impl<T: Config> Pallet<T> {
 
 	fn exchange_rate() -> Rate {
 		let total = T::Currency::total_balance(Token(ADAO), &Self::account_id());
-		let supply = T::Currency::total_issuance(Token(ADAO));
+		let supply = T::Currency::total_issuance(Token(SADAO));
 		if supply.is_zero() {
 			T::DefaultExchangeRate::get()
 		} else {
