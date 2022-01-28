@@ -22,6 +22,7 @@ use acala_primitives::{
 	TokenSymbol::*,
 };
 use module_support::{Rate, Ratio};
+use pallet_dao::StakedTokenManager;
 
 mod mock;
 mod tests;
@@ -229,5 +230,12 @@ impl<T: Config> Pallet<T> {
 
 	fn account_id() -> T::AccountId {
 		T::PalletId::get().into_account()
+	}
+}
+
+impl<T: Config> StakedTokenManager<T::AccountId> for Pallet<T> {
+	fn mint_for_subscription(_who: &T::AccountId, _subscription_amount: Balance) -> DispatchResult {
+		//TODO: impl
+		Ok(())
 	}
 }

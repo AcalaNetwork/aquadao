@@ -18,6 +18,7 @@ orml-traits = { path = "../../../orml/traits", default-features = false }
 
 acala-primitives = { path = "../../../primitives", default-features = false }
 module-support = { path = "../../../modules/support", default-features = false }
+pallet-dao = { path = "../dao", default-features = false }
 
 [features]
 default = ["std"]
@@ -30,6 +31,7 @@ std = [
 	"orml-traits/std",
 	"acala-primitives/std",
 	"module-support/std",
+	"pallet-dao/std",
 ]
 runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
