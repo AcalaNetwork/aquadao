@@ -157,7 +157,6 @@ pub mod module {
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
-			//TODO: subscribe
 			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
 				let now = frame_system::Pallet::<T>::block_number();
@@ -179,7 +178,7 @@ pub mod module {
 
 				// payment
 				T::Currency::transfer(subscription.currency_id, &who, &Self::account_id(), payment_amount)?;
-				// mint ADAO
+				// mint ADAO token
 				T::StakedToken::mint_for_subscription(&who, subscription_amount)?;
 
 				Self::deposit_event(Event::<T>::Subscribed {

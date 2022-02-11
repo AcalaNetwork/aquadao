@@ -197,7 +197,7 @@ impl<T: Config> Pallet<T> {
 		T::Currency::deposit(Token(SADAO), &T::TreasuryAccount::get(), treasury_staked)?;
 		T::Currency::deposit(Token(SADAO), &T::DaoAccount::get(), dao_staked)?;
 
-		//TODO: treasury principle?
+		//TODO: add treasury principle
 
 		Ok(())
 	}
@@ -234,8 +234,39 @@ impl<T: Config> Pallet<T> {
 }
 
 impl<T: Config> StakedTokenManager<T::AccountId> for Pallet<T> {
-	fn mint_for_subscription(_who: &T::AccountId, _subscription_amount: Balance) -> DispatchResult {
-		//TODO: impl
+	fn mint_for_subscription(who: &T::AccountId, amount: Balance) -> DispatchResult {
+		// fixed_share = treasury_share + dao_share
+		let fixed_share = T::TreasuryShare::get()
+			.checked_add(&T::DaoShare::get())
+			.ok_or(ArithmeticError::Overflow)?;
+		// mint = amount * (1 - fixed_share)
+		let mint = Rate::one()
+			.checked_sub(&fixed_share)
+			.ok_or(ArithmeticError::Underflow)?
+			.reciprocal()
+			.ok_or(ArithmeticError::DivisionByZero)?
+			.checked_mul_int(amount)
+			.ok_or(ArithmeticError::Overflow)?;
+
+		let treasury_mint = T::TreasuryShare::get()
+			.checked_mul_int(mint)
+			.ok_or(ArithmeticError::Overflow)?;
+		let dao_mint = T::DaoShare::get()
+			.checked_mul_int(mint)
+			.ok_or(ArithmeticError::Overflow)?;
+		let treasury_staked = Self::to_staked(treasury_mint)?;
+		let dao_staked = Self::to_staked(dao_mint)?;
+		let staked = Self::to_staked(amount)?;
+
+		T::Currency::deposit(Token(DAO), &Self::account_id(), mint)?;
+
+		// mint & stake the treasury and DAO share
+		T::Currency::deposit(Token(SADAO), who, staked)?;
+		T::Currency::deposit(Token(SADAO), &T::TreasuryAccount::get(), treasury_staked)?;
+		T::Currency::deposit(Token(SADAO), &T::DaoAccount::get(), dao_staked)?;
+
+		//TODO: add treasury principle
+
 		Ok(())
 	}
 }
