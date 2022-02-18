@@ -1,5 +1,5 @@
 [package]
-name = "pallet-dao"
+name = "ecosystem-aqua-dao"
 version = "0.1.0"
 authors = ["AquaDao Developers"]
 edition = "2021"

@@ -22,7 +22,7 @@ use acala_primitives::{
 	TokenSymbol::*,
 };
 use module_support::{Rate, Ratio};
-use pallet_dao::StakedTokenManager;
+use ecosystem_aqua_dao::StakedTokenManager;
 
 mod mock;
 mod tests;

@@ -1,5 +1,5 @@
 [package]
-name = "pallet-treasury-staking"
+name = "ecosystem-aqua-treasury-staking"
 version = "0.1.0"
 authors = ["AquaDao Developers"]
 edition = "2021"
