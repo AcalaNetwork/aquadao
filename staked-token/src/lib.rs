@@ -97,6 +97,7 @@ pub mod module {
 	}
 
 	#[pallet::pallet]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	#[pallet::hooks]
@@ -258,7 +259,7 @@ impl<T: Config> StakedTokenManager<T::AccountId> for Pallet<T> {
 		let dao_staked = Self::to_staked(dao_mint)?;
 		let staked = Self::to_staked(amount)?;
 
-		T::Currency::deposit(Token(DAO), &Self::account_id(), mint)?;
+		T::Currency::deposit(Token(ADAO), &Self::account_id(), mint)?;
 
 		// mint & stake the treasury and DAO share
 		T::Currency::deposit(Token(SADAO), who, staked)?;

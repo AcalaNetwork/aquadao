@@ -2,6 +2,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use codec::MaxEncodedLen;
 use frame_support::{pallet_prelude::*, transactional};
 use frame_system::pallet_prelude::*;
 
@@ -14,7 +15,7 @@ mod tests;
 
 pub use module::*;
 
-#[derive(Encode, Decode, RuntimeDebug, Default, TypeInfo)]
+#[derive(Encode, Decode, RuntimeDebug, Default, TypeInfo, MaxEncodedLen)]
 pub struct StakeInfo {
 	shares: Balance,
 	withdrawn: Balance,
