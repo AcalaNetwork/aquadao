@@ -20,7 +20,7 @@ use acala_primitives::{
 	CurrencyId::{self, Token},
 	TokenSymbol::*,
 };
-use module_support::{Price, PriceProvider};
+use module_support::{Price, DEXPriceProvider};
 
 mod mock;
 mod tests;
@@ -67,7 +67,9 @@ pub trait StakedTokenManager<AccountId> {
 
 #[frame_support::pallet]
 pub mod module {
-	use super::*;
+	use acala_primitives::TokenSymbol;
+
+use super::*;
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -75,9 +77,11 @@ pub mod module {
 
 		type Currency: MultiCurrency<Self::AccountId, Balance = Balance, CurrencyId = CurrencyId>;
 
+		type StableTokenSymbol: Get<TokenSymbol>;
+
 		type CreatingOrigin: EnsureOrigin<Self::Origin>;
 
-		type Oracle: PriceProvider<CurrencyId>;
+		type Oracle: DEXPriceProvider<CurrencyId>;
 
 		type StakedToken: StakedTokenManager<Self::AccountId>;
 
@@ -209,8 +213,8 @@ impl<T: Config> Pallet<T> {
 		} = subscription;
 
 		// price
-		let adao_price = T::Oracle::get_price(Token(ADAO)).ok_or(Error::<T>::NoPrice)?;
-		let payment_price = T::Oracle::get_price(*currency_id).ok_or(Error::<T>::NoPrice)?;
+		let adao_price = T::Oracle::get_relative_price(Token(ADAO), Token(T::StableTokenSymbol::get())).ok_or(Error::<T>::NoPrice)?;
+		let payment_price = T::Oracle::get_relative_price(*currency_id, Token(T::StableTokenSymbol::get())).ok_or(Error::<T>::NoPrice)?;
 
 		// discount
 
