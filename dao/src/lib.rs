@@ -20,7 +20,7 @@ use acala_primitives::{
 	CurrencyId::{self, Token},
 	TokenSymbol::*,
 };
-use module_support::{Price, DEXPriceProvider};
+use module_support::{DEXPriceProvider, Price};
 
 mod mock;
 mod tests;
@@ -69,7 +69,7 @@ pub trait StakedTokenManager<AccountId> {
 pub mod module {
 	use acala_primitives::TokenSymbol;
 
-use super::*;
+	use super::*;
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -213,8 +213,10 @@ impl<T: Config> Pallet<T> {
 		} = subscription;
 
 		// price
-		let adao_price = T::Oracle::get_relative_price(Token(ADAO), Token(T::StableTokenSymbol::get())).ok_or(Error::<T>::NoPrice)?;
-		let payment_price = T::Oracle::get_relative_price(*currency_id, Token(T::StableTokenSymbol::get())).ok_or(Error::<T>::NoPrice)?;
+		let adao_price = T::Oracle::get_relative_price(Token(ADAO), Token(T::StableTokenSymbol::get()))
+			.ok_or(Error::<T>::NoPrice)?;
+		let payment_price = T::Oracle::get_relative_price(*currency_id, Token(T::StableTokenSymbol::get()))
+			.ok_or(Error::<T>::NoPrice)?;
 
 		// discount
 

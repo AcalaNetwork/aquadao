@@ -21,8 +21,8 @@ use acala_primitives::{
 	CurrencyId::{self, Token},
 	TokenSymbol::*,
 };
-use module_support::{Rate, Ratio};
 use ecosystem_aqua_dao::StakedTokenManager;
+use module_support::{Rate, Ratio};
 
 mod mock;
 mod tests;
