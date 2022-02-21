@@ -34,6 +34,8 @@ pub type DiscountRate = FixedI128;
 pub struct Subscription<BlockNumber> {
 	currency_id: CurrencyId,
 	vesting_period: BlockNumber,
+	/// minimum subscription amount
+	min_amount: Balance,
 	min_price: Price,
 	amount: Balance,
 	discount: Discount,
@@ -107,6 +109,8 @@ pub mod module {
 		SubscriptionIsFull,
 		/// The received amount on subscription is below minimum target amount.
 		BelowMinTargetAmount,
+		/// Below minimum subscription amount.
+		BelowMinSubscriptionAmount,
 	}
 
 	#[pallet::event]
@@ -166,6 +170,8 @@ pub mod module {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
 				let now = frame_system::Pallet::<T>::block_number();
 				let subscription_amount = Self::subscription_amount(&subscription, payment_amount, now)?;
+
+				ensure!(subscription_amount >= subscription.min_amount, Error::<T>::BelowMinSubscriptionAmount);
 
 				if subscription_amount > subscription.amount.saturating_sub(subscription.state.total_sold) {
 					return Err(Error::<T>::SubscriptionIsFull.into());
