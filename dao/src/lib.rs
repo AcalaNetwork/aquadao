@@ -63,8 +63,12 @@ pub struct SubscriptionState<BlockNumber> {
 	last_discount: DiscountRate,
 }
 
-pub trait StakedTokenManager<AccountId> {
-	fn mint_for_subscription(who: &AccountId, subscription_amount: Balance) -> DispatchResult;
+pub trait StakedTokenManager<AccountId, BlockNumber> {
+	fn mint_for_subscription(
+		who: &AccountId,
+		subscription_amount: Balance,
+		vesting_period: BlockNumber,
+	) -> DispatchResult;
 }
 
 #[frame_support::pallet]
@@ -85,7 +89,7 @@ pub mod module {
 
 		type Oracle: DEXPriceProvider<CurrencyId>;
 
-		type StakedToken: StakedTokenManager<Self::AccountId>;
+		type StakedToken: StakedTokenManager<Self::AccountId, Self::BlockNumber>;
 
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
@@ -171,7 +175,10 @@ pub mod module {
 				let now = frame_system::Pallet::<T>::block_number();
 				let subscription_amount = Self::subscription_amount(&subscription, payment_amount, now)?;
 
-				ensure!(subscription_amount >= subscription.min_amount, Error::<T>::BelowMinSubscriptionAmount);
+				ensure!(
+					subscription_amount >= subscription.min_amount,
+					Error::<T>::BelowMinSubscriptionAmount
+				);
 
 				if subscription_amount > subscription.amount.saturating_sub(subscription.state.total_sold) {
 					return Err(Error::<T>::SubscriptionIsFull.into());
@@ -190,7 +197,7 @@ pub mod module {
 				// payment
 				T::Currency::transfer(subscription.currency_id, &who, &Self::account_id(), payment_amount)?;
 				// mint ADAO token
-				T::StakedToken::mint_for_subscription(&who, subscription_amount)?;
+				T::StakedToken::mint_for_subscription(&who, subscription_amount, subscription.vesting_period)?;
 
 				Self::deposit_event(Event::<T>::Subscribed {
 					who,

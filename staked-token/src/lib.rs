@@ -4,17 +4,17 @@
 
 use frame_support::{
 	pallet_prelude::*,
-	traits::{EnsureOrigin, Get},
+	traits::{EnsureOrigin, Get, LockIdentifier},
 	transactional, PalletId,
 };
 use frame_system::pallet_prelude::*;
 use sp_runtime::{
-	traits::{AccountIdConversion, CheckedAdd, CheckedSub, One, Zero},
+	traits::{AccountIdConversion, BlockNumberProvider, CheckedAdd, CheckedSub, One, Saturating, Zero},
 	ArithmeticError, FixedPointNumber,
 };
 use sp_std::result::Result;
 
-use orml_traits::MultiCurrency;
+use orml_traits::{MultiCurrency, MultiLockableCurrency};
 
 use acala_primitives::{
 	Balance,
@@ -29,6 +29,15 @@ mod tests;
 
 pub use module::*;
 
+#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, Default)]
+pub struct Vesting<BlockNumber> {
+	unlock_at: BlockNumber,
+	amount: Balance,
+}
+pub type VestingOf<T> = Vesting<<T as frame_system::Config>::BlockNumber>;
+
+const VESTING_LOCK_ID: LockIdentifier = *b"aquavest";
+
 #[frame_support::pallet]
 pub mod module {
 	use super::*;
@@ -37,11 +46,14 @@ pub mod module {
 	pub trait Config: frame_system::Config {
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 
-		type Currency: MultiCurrency<Self::AccountId, Balance = Balance, CurrencyId = CurrencyId>;
+		type Currency: MultiLockableCurrency<Self::AccountId, Balance = Balance, CurrencyId = CurrencyId>;
 
 		/// Origin required to update financial parameters, like unstake fee rate, inflation rate
 		/// per block etc.
 		type UpdateParamsOrigin: EnsureOrigin<Self::Origin>;
+
+		/// The block number provider
+		type BlockNumberProvider: BlockNumberProvider<BlockNumber = Self::BlockNumber>;
 
 		#[pallet::constant]
 		type TreasuryShare: Get<Ratio>;
@@ -70,9 +82,16 @@ pub mod module {
 	#[pallet::getter(fn inflation_rate_per_block)]
 	pub type InflationRatePerBlock<T> = StorageValue<_, Rate, ValueQuery>;
 
+	#[pallet::storage]
+	#[pallet::getter(fn vestings)]
+	pub type Vestings<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, VestingOf<T>, ValueQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
-		Dummy,
+		/// No vesting,
+		VestingNotFound,
+		/// Vesting is can't be claimed yet
+		NotClaimable,
 	}
 
 	#[pallet::event]
@@ -87,6 +106,10 @@ pub mod module {
 			who: T::AccountId,
 			amount: Balance,
 			received: Balance,
+		},
+		Claimed {
+			who: T::AccountId,
+			amount: Balance,
 		},
 		UnstakeFeeRateUpdated {
 			rate: Rate,
@@ -141,6 +164,31 @@ pub mod module {
 			T::Currency::transfer(Token(ADAO), &Self::account_id(), &who, received)?;
 
 			Self::deposit_event(Event::<T>::Unstaked { who, amount, received });
+			Ok(())
+		}
+
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn claim(origin: OriginFor<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			let claimed_amount = Vestings::<T>::try_mutate(&who, |vesting| -> BalanceResult {
+				ensure!(!vesting.amount.is_zero(), Error::<T>::VestingNotFound);
+				let now = T::BlockNumberProvider::current_block_number();
+				ensure!(vesting.unlock_at <= now, Error::<T>::NotClaimable);
+
+				T::Currency::remove_lock(VESTING_LOCK_ID, Token(SADAO), &who)?;
+
+				let amount = vesting.amount;
+				vesting.amount = Zero::zero();
+
+				Ok(amount)
+			})?;
+
+			Self::deposit_event(Event::<T>::Claimed {
+				who,
+				amount: claimed_amount,
+			});
 			Ok(())
 		}
 
@@ -234,8 +282,8 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-impl<T: Config> StakedTokenManager<T::AccountId> for Pallet<T> {
-	fn mint_for_subscription(who: &T::AccountId, amount: Balance) -> DispatchResult {
+impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
+	fn mint_for_subscription(who: &T::AccountId, amount: Balance, vesting_period: T::BlockNumber) -> DispatchResult {
 		// fixed_share = treasury_share + dao_share
 		let fixed_share = T::TreasuryShare::get()
 			.checked_add(&T::DaoShare::get())
@@ -265,6 +313,23 @@ impl<T: Config> StakedTokenManager<T::AccountId> for Pallet<T> {
 		T::Currency::deposit(Token(SADAO), who, staked)?;
 		T::Currency::deposit(Token(SADAO), &T::TreasuryAccount::get(), treasury_staked)?;
 		T::Currency::deposit(Token(SADAO), &T::DaoAccount::get(), dao_staked)?;
+
+		// SDAO token vesting, extend the existing vesting period if not claimable.
+		Vestings::<T>::try_mutate(&who, |vesting| -> DispatchResult {
+			let now = T::BlockNumberProvider::current_block_number();
+			let existing_locked = if !vesting.amount.is_zero() && vesting.unlock_at > now {
+				vesting.amount
+			} else {
+				Zero::zero()
+			};
+			let to_lock = staked.saturating_add(existing_locked);
+			T::Currency::set_lock(VESTING_LOCK_ID, Token(SADAO), who, to_lock)?;
+
+			vesting.amount = to_lock;
+			vesting.unlock_at = now.saturating_add(vesting_period);
+
+			Ok(())
+		})?;
 
 		//TODO: add treasury principle
 
