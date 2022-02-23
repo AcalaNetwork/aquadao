@@ -172,13 +172,8 @@ pub mod module {
 				let subscription_amount = Self::subscription_amount(&subscription, payment_amount, now)?;
 
 				ensure!(subscription_amount >= subscription.min_amount, Error::<T>::BelowMinSubscriptionAmount);
-
-				if subscription_amount > subscription.amount.saturating_sub(subscription.state.total_sold) {
-					return Err(Error::<T>::SubscriptionIsFull.into());
-				}
-				if subscription_amount < min_target_amount {
-					return Err(Error::<T>::BelowMinTargetAmount.into());
-				}
+				ensure!(subscription_amount <= subscription.amount.saturating_sub(subscription.state.total_sold), Error::<T>::SubscriptionIsFull);
+				ensure!(subscription_amount < min_target_amount, Error::<T>::BelowMinTargetAmount);
 
 				subscription.state.total_sold = subscription
 					.state
@@ -201,6 +196,9 @@ pub mod module {
 				Ok(())
 			})
 		}
+
+		// TODO: needs call to close subscription
+		// TOOD: needs call to modify existing subscription
 	}
 }
 

@@ -66,6 +66,7 @@ pub mod module {
 	#[pallet::getter(fn unstake_fee_rate)]
 	pub type UnstakeFeeRate<T> = StorageValue<_, Rate, ValueQuery>;
 
+	// TODO: make this a constant. we don't expect to update this value often.
 	#[pallet::storage]
 	#[pallet::getter(fn inflation_rate_per_block)]
 	pub type InflationRatePerBlock<T> = StorageValue<_, Rate, ValueQuery>;
@@ -103,6 +104,8 @@ pub mod module {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<T::BlockNumber> for Pallet<T> {
 		fn on_finalize(_now: T::BlockNumber) {
+			// TODO: move to on_initialize
+			// TODO: inflate at a configurable interval (e.g. every hour) to reduce load
 			let total = T::Currency::total_issuance(Token(ADAO));
 			let maybe_inflation_amount = Self::inflation_rate_per_block().checked_mul_int(total);
 			if let Some(inflation_amount) = maybe_inflation_amount {
@@ -136,6 +139,7 @@ pub mod module {
 				.checked_mul_int(redeem)
 				.ok_or(ArithmeticError::Overflow)?;
 			let received = redeem.checked_sub(fee).ok_or(ArithmeticError::Underflow)?;
+			// TODO: fee should go to treasury
 
 			T::Currency::withdraw(Token(SADAO), &who, amount)?;
 			T::Currency::transfer(Token(ADAO), &Self::account_id(), &who, received)?;
