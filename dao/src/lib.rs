@@ -39,6 +39,7 @@ pub struct Subscription<BlockNumber> {
 	min_price: Price,
 	amount: Balance,
 	discount: Discount,
+	closed: bool,
 	state: SubscriptionState<BlockNumber>,
 }
 
@@ -115,6 +116,8 @@ pub mod module {
 		BelowMinTargetAmount,
 		/// Below minimum subscription amount.
 		BelowMinSubscriptionAmount,
+		/// Subscription is closed.
+		SubscriptionIsClosed,
 	}
 
 	#[pallet::event]
@@ -123,6 +126,12 @@ pub mod module {
 		SubscriptionCreated {
 			id: SubscriptionId,
 			subscription: SubscriptionOf<T>,
+		},
+		SubscriptionUpdated {
+			id: SubscriptionId,
+		},
+		SubscriptionClosed {
+			id: SubscriptionId,
 		},
 		Subscribed {
 			who: T::AccountId,
@@ -162,6 +171,55 @@ pub mod module {
 
 		#[pallet::weight(0)]
 		#[transactional]
+		pub fn update_subscription(
+			origin: OriginFor<T>,
+			subscription_id: SubscriptionId,
+			vesting_period: Option<T::BlockNumber>,
+			min_amount: Option<Balance>,
+			min_price: Option<Price>,
+			amount: Option<Balance>,
+			discount: Option<Discount>,
+		) -> DispatchResult {
+			T::CreatingOrigin::ensure_origin(origin)?;
+
+			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
+				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
+
+				if let Some(new_vesting_period) = vesting_period {
+					subscription.vesting_period = new_vesting_period;
+				}
+				if let Some(new_min_amount) = min_amount {
+					subscription.min_amount = new_min_amount;
+				}
+				if let Some(new_min_price) = min_price {
+					subscription.min_price = new_min_price;
+				}
+				if let Some(new_amount) = amount {
+					subscription.amount = new_amount;
+				}
+				if let Some(new_discount) = discount {
+					subscription.discount = new_discount;
+				}
+
+				Self::deposit_event(Event::<T>::SubscriptionUpdated { id: subscription_id });
+				Ok(())
+			})
+		}
+
+		#[pallet::weight(0)]
+		#[transactional]
+		pub fn close_subscription(origin: OriginFor<T>, subscription_id: SubscriptionId) -> DispatchResult {
+			T::CreatingOrigin::ensure_origin(origin)?;
+			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
+				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
+				subscription.closed = true;
+				Self::deposit_event(Event::<T>::SubscriptionClosed { id: subscription_id });
+				Ok(())
+			})
+		}
+
+		#[pallet::weight(0)]
+		#[transactional]
 		pub fn subscribe(
 			origin: OriginFor<T>,
 			subscription_id: SubscriptionId,
@@ -172,6 +230,8 @@ pub mod module {
 
 			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
+				ensure!(!subscription.closed, Error::<T>::SubscriptionIsClosed);
+
 				let now = frame_system::Pallet::<T>::block_number();
 				let subscription_amount = Self::subscription_amount(&subscription, payment_amount, now)?;
 
@@ -179,13 +239,14 @@ pub mod module {
 					subscription_amount >= subscription.min_amount,
 					Error::<T>::BelowMinSubscriptionAmount
 				);
-
-				if subscription_amount > subscription.amount.saturating_sub(subscription.state.total_sold) {
-					return Err(Error::<T>::SubscriptionIsFull.into());
-				}
-				if subscription_amount < min_target_amount {
-					return Err(Error::<T>::BelowMinTargetAmount.into());
-				}
+				ensure!(
+					subscription_amount <= subscription.amount.saturating_sub(subscription.state.total_sold),
+					Error::<T>::SubscriptionIsFull
+				);
+				ensure!(
+					subscription_amount >= min_target_amount,
+					Error::<T>::BelowMinTargetAmount
+				);
 
 				subscription.state.total_sold = subscription
 					.state

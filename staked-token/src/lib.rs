@@ -55,6 +55,9 @@ pub mod module {
 		/// The block number provider
 		type BlockNumberProvider: BlockNumberProvider<BlockNumber = Self::BlockNumber>;
 
+		/// Inflate rate per `n` block: (n, rate)
+		type InflationRatePerNBlock: Get<(Self::BlockNumber, Rate)>;
+
 		#[pallet::constant]
 		type TreasuryShare: Get<Ratio>;
 
@@ -77,10 +80,6 @@ pub mod module {
 	#[pallet::storage]
 	#[pallet::getter(fn unstake_fee_rate)]
 	pub type UnstakeFeeRate<T> = StorageValue<_, Rate, ValueQuery>;
-
-	#[pallet::storage]
-	#[pallet::getter(fn inflation_rate_per_block)]
-	pub type InflationRatePerBlock<T> = StorageValue<_, Rate, ValueQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn vestings)]
@@ -125,12 +124,19 @@ pub mod module {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<T::BlockNumber> for Pallet<T> {
-		fn on_finalize(_now: T::BlockNumber) {
-			let total = T::Currency::total_issuance(Token(ADAO));
-			let maybe_inflation_amount = Self::inflation_rate_per_block().checked_mul_int(total);
-			if let Some(inflation_amount) = maybe_inflation_amount {
-				let _ = Self::inflate(inflation_amount);
+		fn on_initialize(now: T::BlockNumber) -> Weight {
+			let (n, rate) = T::InflationRatePerNBlock::get();
+			// `rem_euclid` should be preferred but not supported by `BlockNumber`. `n`
+			// can't be zero in runtime config so it's safe to use modulo `%`.
+			if (now % n).is_zero() {
+				let total = T::Currency::total_issuance(Token(ADAO));
+				if let Some(inflation_amount) = rate.checked_mul_int(total) {
+					let _ = Self::inflate(inflation_amount);
+				}
 			}
+
+			//TODO: bench
+			0
 		}
 	}
 
@@ -160,8 +166,12 @@ pub mod module {
 				.ok_or(ArithmeticError::Overflow)?;
 			let received = redeem.checked_sub(fee).ok_or(ArithmeticError::Underflow)?;
 
+			// destroy SADAO
 			T::Currency::withdraw(Token(SADAO), &who, amount)?;
+			// payback ADAO
 			T::Currency::transfer(Token(ADAO), &Self::account_id(), &who, received)?;
+			// fee goes to treasury
+			T::Currency::transfer(Token(ADAO), &Self::account_id(), &T::TreasuryAccount::get(), fee)?;
 
 			Self::deposit_event(Event::<T>::Unstaked { who, amount, received });
 			Ok(())
@@ -198,15 +208,6 @@ pub mod module {
 			T::UpdateParamsOrigin::ensure_origin(origin)?;
 			UnstakeFeeRate::<T>::put(rate);
 			Self::deposit_event(Event::<T>::UnstakeFeeRateUpdated { rate });
-			Ok(())
-		}
-
-		#[pallet::weight(0)]
-		#[transactional]
-		pub fn update_inflation_rate_per_block(origin: OriginFor<T>, rate: Rate) -> DispatchResult {
-			T::UpdateParamsOrigin::ensure_origin(origin)?;
-			InflationRatePerBlock::<T>::put(rate);
-			Self::deposit_event(Event::<T>::InflationRatePerBlockUpdated { rate });
 			Ok(())
 		}
 	}
