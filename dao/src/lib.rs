@@ -207,7 +207,7 @@ pub mod module {
 		#[transactional]
 		pub fn close_subscription(origin: OriginFor<T>, subscription_id: SubscriptionId) -> DispatchResult {
 			T::CreatingOrigin::ensure_origin(origin)?;
-			Subscriptions::<T>::remove(subscription_id);
+			Subscriptions::<T>::take(subscription_id).ok_or(Error::<T>::SubscriptionNotFound)?;
 			Self::deposit_event(Event::<T>::SubscriptionClosed { id: subscription_id });
 			Ok(())
 		}
