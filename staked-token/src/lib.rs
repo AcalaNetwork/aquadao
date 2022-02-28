@@ -289,7 +289,7 @@ impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
 		let fixed_share = T::TreasuryShare::get()
 			.checked_add(&T::DaoShare::get())
 			.ok_or(ArithmeticError::Overflow)?;
-		// mint = amount * (1 - fixed_share)
+		// mint = amount / (1 - fixed_share)
 		let mint = Rate::one()
 			.checked_sub(&fixed_share)
 			.ok_or(ArithmeticError::Underflow)?

@@ -291,11 +291,9 @@ impl<T: Config> Pallet<T> {
 
 		// discount
 
-		// idle_block = last_sold_at - now
-		let idle_blocks = subscription
-			.state
-			.last_sold_at
-			.checked_sub(&now)
+		// idle_block = now - last_sold_at
+		let idle_blocks = now
+			.checked_sub(&subscription.state.last_sold_at)
 			.map(|n| {
 				let n_u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(n);
 				DiscountRate::checked_from_integer(n_u64 as i128).expect("Block number can't overflow; qed")
