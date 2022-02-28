@@ -225,7 +225,8 @@ pub mod module {
 			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
 				let now = frame_system::Pallet::<T>::block_number();
-				let (subscription_amount, last_discount) = Self::subscription_amount(&subscription, payment_amount, now)?;
+				let (subscription_amount, last_discount) =
+					Self::subscription_amount(&subscription, payment_amount, now)?;
 
 				ensure!(
 					subscription_amount >= subscription.min_amount,
