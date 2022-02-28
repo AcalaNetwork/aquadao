@@ -225,7 +225,7 @@ pub mod module {
 			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
 				let now = frame_system::Pallet::<T>::block_number();
-				let subscription_amount = Self::subscription_amount(&subscription, payment_amount, now)?;
+				let (subscription_amount, last_discount) = Self::subscription_amount(&subscription, payment_amount, now)?;
 
 				ensure!(
 					subscription_amount >= subscription.min_amount,
@@ -246,6 +246,7 @@ pub mod module {
 					.checked_add(subscription_amount)
 					.expect("Subscription amount is smaller than remaining; qed");
 				subscription.state.last_sold_at = now;
+				subscription.state.last_discount = last_discount;
 
 				// payment
 				T::Currency::transfer(subscription.currency_id, &who, &Self::account_id(), payment_amount)?;
@@ -265,11 +266,14 @@ pub mod module {
 }
 
 impl<T: Config> Pallet<T> {
+	/// Calculate the amount of ADAO tokens to be minted for a subscription.
+	///
+	/// Returns `(amount, last_discount)` if `Ok`.
 	fn subscription_amount(
 		subscription: &SubscriptionOf<T>,
 		payment: Balance,
 		now: T::BlockNumber,
-	) -> Result<Balance, DispatchError> {
+	) -> Result<(Balance, DiscountRate), DispatchError> {
 		let Subscription {
 			currency_id,
 			min_price,
@@ -352,7 +356,7 @@ impl<T: Config> Pallet<T> {
 			.checked_div(&inc)
 			.ok_or(ArithmeticError::DivisionByZero)?;
 
-		Ok(fixed_u128_to_integer(subscription_amount))
+		Ok((fixed_u128_to_integer(subscription_amount), price_discount))
 	}
 
 	fn account_id() -> T::AccountId {
