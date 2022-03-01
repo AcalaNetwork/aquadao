@@ -25,6 +25,9 @@ use module_support::{DEXPriceProvider, Price};
 mod mock;
 mod tests;
 
+pub mod weights;
+pub use weights::WeightInfo;
+
 pub use module::*;
 
 pub type SubscriptionId = u32;
@@ -32,14 +35,14 @@ pub type DiscountRate = FixedI128;
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct Subscription<BlockNumber> {
-	currency_id: CurrencyId,
-	vesting_period: BlockNumber,
+	pub currency_id: CurrencyId,
+	pub vesting_period: BlockNumber,
 	/// minimum subscription amount
-	min_amount: Balance,
-	min_price: Price,
-	amount: Balance,
-	discount: Discount,
-	state: SubscriptionState<BlockNumber>,
+	pub min_amount: Balance,
+	pub min_price: Price,
+	pub amount: Balance,
+	pub discount: Discount,
+	pub state: SubscriptionState<BlockNumber>,
 }
 
 pub type SubscriptionOf<T> = Subscription<<T as frame_system::Config>::BlockNumber>;
@@ -47,20 +50,20 @@ pub type SubscriptionOf<T> = Subscription<<T as frame_system::Config>::BlockNumb
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, Default, TypeInfo)]
 pub struct Discount {
 	/// Max discount rate.
-	max: DiscountRate,
+	pub max: DiscountRate,
 	/// The percentage to increase on each idle block.
 	/// `idle`: the period when there is no new subscription.
-	inc_on_idle: DiscountRate,
+	pub inc_on_idle: DiscountRate,
 	/// The percentage to decrease with each unit subscribed.
 	/// Could be negative.
-	dec_per_unit: DiscountRate,
+	pub dec_per_unit: DiscountRate,
 }
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct SubscriptionState<BlockNumber> {
-	total_sold: Balance,
-	last_sold_at: BlockNumber,
-	last_discount: DiscountRate,
+	pub total_sold: Balance,
+	pub last_sold_at: BlockNumber,
+	pub last_discount: DiscountRate,
 }
 
 pub trait StakedTokenManager<AccountId, BlockNumber> {
@@ -93,6 +96,8 @@ pub mod module {
 
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
+
+		type WeightInfo: WeightInfo;
 	}
 
 	#[pallet::storage]
@@ -147,7 +152,7 @@ pub mod module {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::create_subscription())]
 		#[transactional]
 		pub fn create_subscription(origin: OriginFor<T>, subscription: SubscriptionOf<T>) -> DispatchResult {
 			T::CreatingOrigin::ensure_origin(origin)?;
@@ -166,7 +171,7 @@ pub mod module {
 			Ok(())
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::update_subscription())]
 		#[transactional]
 		pub fn update_subscription(
 			origin: OriginFor<T>,
@@ -203,7 +208,7 @@ pub mod module {
 			})
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::close_subscription())]
 		#[transactional]
 		pub fn close_subscription(origin: OriginFor<T>, subscription_id: SubscriptionId) -> DispatchResult {
 			T::CreatingOrigin::ensure_origin(origin)?;

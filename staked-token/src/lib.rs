@@ -27,12 +27,15 @@ use module_support::{Rate, Ratio};
 mod mock;
 mod tests;
 
+pub mod weights;
+pub use weights::WeightInfo;
+
 pub use module::*;
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, Default)]
 pub struct Vesting<BlockNumber> {
-	unlock_at: BlockNumber,
-	amount: Balance,
+	pub unlock_at: BlockNumber,
+	pub amount: Balance,
 }
 pub type VestingOf<T> = Vesting<<T as frame_system::Config>::BlockNumber>;
 
@@ -75,6 +78,8 @@ pub mod module {
 
 		#[pallet::constant]
 		type DaoAccount: Get<Self::AccountId>;
+
+		type WeightInfo: WeightInfo;
 	}
 
 	#[pallet::storage]
@@ -133,16 +138,16 @@ pub mod module {
 				if let Some(inflation_amount) = rate.checked_mul_int(total) {
 					let _ = Self::inflate(inflation_amount);
 				}
+				<T as Config>::WeightInfo::on_initialize()
+			} else {
+				<T as Config>::WeightInfo::on_initialize_without_inflation()
 			}
-
-			//TODO: bench
-			0
 		}
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::stake())]
 		#[transactional]
 		pub fn stake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -155,7 +160,7 @@ pub mod module {
 			Ok(())
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::unstake())]
 		#[transactional]
 		pub fn unstake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -177,7 +182,7 @@ pub mod module {
 			Ok(())
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::claim())]
 		#[transactional]
 		pub fn claim(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
@@ -202,7 +207,7 @@ pub mod module {
 			Ok(())
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::update_unstake_fee_rate())]
 		#[transactional]
 		pub fn update_unstake_fee_rate(origin: OriginFor<T>, rate: Rate) -> DispatchResult {
 			T::UpdateParamsOrigin::ensure_origin(origin)?;
@@ -278,7 +283,7 @@ impl<T: Config> Pallet<T> {
 			.ok_or(ArithmeticError::Overflow.into())
 	}
 
-	fn account_id() -> T::AccountId {
+	pub fn account_id() -> T::AccountId {
 		T::PalletId::get().into_account()
 	}
 }
