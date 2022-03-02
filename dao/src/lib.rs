@@ -89,10 +89,10 @@ pub mod module {
 		type CreatingOrigin: EnsureOrigin<Self::Origin>;
 
 		/// Used for payment currency prices.
-		type Oracle: PriceProvider<CurrencyId>;
+		type AssetPriceProvider: PriceProvider<CurrencyId>;
 
 		/// Used for `ADAO` token price.
-		type DexOracle: DEXPriceProvider<CurrencyId>;
+		type AdaoPriceProvider: DEXPriceProvider<CurrencyId>;
 
 		type StakedToken: StakedTokenManager<Self::AccountId, Self::BlockNumber>;
 
@@ -291,16 +291,11 @@ impl<T: Config> Pallet<T> {
 		} = subscription;
 
 		// ADAO price: from DEX
-		let adao_price =
-			T::DexOracle::get_relative_price(Token(ADAO), T::StableCurrencyId::get()).ok_or(Error::<T>::NoPrice)?;
+		let adao_price = T::AdaoPriceProvider::get_relative_price(Token(ADAO), T::StableCurrencyId::get())
+			.ok_or(Error::<T>::NoPrice)?;
 		// Payment currency price, from oracles
-		let payment_price = if *currency_id == T::StableCurrencyId::get() {
-			One::one()
-		} else {
-			let p =
-				T::Oracle::get_relative_price(*currency_id, T::StableCurrencyId::get()).ok_or(Error::<T>::NoPrice)?;
-			p
-		};
+		let payment_price = T::AssetPriceProvider::get_relative_price(*currency_id, T::StableCurrencyId::get())
+			.ok_or(Error::<T>::NoPrice)?;
 
 		// discount
 
