@@ -18,6 +18,7 @@ use orml_traits::MultiCurrency;
 use acala_primitives::{
 	Balance,
 	CurrencyId::{self, Token},
+	TokenInfo,
 	TokenSymbol::*,
 };
 use module_support::{DEXPriceProvider, Price, PriceProvider};
@@ -122,6 +123,8 @@ pub mod module {
 		BelowMinTargetAmount,
 		/// Below minimum subscription amount.
 		BelowMinSubscriptionAmount,
+		/// No currency id decimals.
+		NoCurrencyIdDecimals,
 	}
 
 	#[pallet::event]
@@ -357,7 +360,10 @@ impl<T: Config> Pallet<T> {
 			.ok_or(ArithmeticError::Overflow)?;
 		let y = start_price.checked_mul(&start_price).ok_or(ArithmeticError::Overflow)?;
 		let z = x.checked_add(&y).ok_or(ArithmeticError::Overflow)?;
-		let subscription_amount = fixed_u128_sqrt(z)
+
+		let currency_id_decimals = currency_id.decimals().ok_or(Error::<T>::NoCurrencyIdDecimals)?;
+		let sqrt = balance_fixed_u128_sqrt(currency_id_decimals as u32, z)?;
+		let subscription_amount = sqrt
 			.checked_sub(&start_price)
 			.ok_or(ArithmeticError::Underflow)?
 			.checked_div(&inc)
@@ -371,14 +377,16 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
-fn fixed_u128_sqrt(n: FixedU128) -> FixedU128 {
+fn balance_fixed_u128_sqrt(decimals: u32, n: FixedU128) -> Result<FixedU128, DispatchError> {
 	let inner = n.into_inner();
 	let inner_sqrt = inner.integer_sqrt();
-	let div_sqrt = FixedU128::accuracy().integer_sqrt();
-	let new_inner = div_sqrt
-		.checked_div(inner_sqrt)
-		.expect("`FixedPointNumber` accuracy can't be zero; qed");
-	FixedU128::from_inner(new_inner)
+	// note that balance has its own decimal precision
+	let accuracy_sqrt = FixedU128::accuracy()
+		.checked_mul(10_u128.pow(decimals.into()))
+		.expect("decimals arithmetic can't overflow; qed")
+		.integer_sqrt();
+	let new_inner = inner_sqrt.checked_mul(accuracy_sqrt).ok_or(ArithmeticError::Overflow)?;
+	Ok(FixedU128::from_inner(new_inner))
 }
 
 fn fixed_u128_to_integer(n: FixedU128) -> u128 {
