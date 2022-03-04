@@ -55,7 +55,7 @@ pub struct Discount {
 	/// The percentage to increase on each idle block.
 	/// `idle`: the period when there is no new subscription.
 	pub inc_on_idle: DiscountRate,
-	/// The percentage to decrease with each unit subscribed.
+	/// The percentage to decrease with 1 aDAO subscribed.
 	/// Could be negative.
 	pub dec_per_unit: DiscountRate,
 }
@@ -123,8 +123,8 @@ pub mod module {
 		BelowMinTargetAmount,
 		/// Below minimum subscription amount.
 		BelowMinSubscriptionAmount,
-		/// No currency id decimals.
-		NoCurrencyIdDecimals,
+		/// Currency has no decimals info.
+		NoDecimalsInfo,
 	}
 
 	#[pallet::event]
@@ -311,17 +311,25 @@ impl<T: Config> Pallet<T> {
 			})
 			.ok_or(ArithmeticError::Underflow)?;
 		// discount_inc = inc_on_idle * idle_blocks
-		// discount_dec = dec_per_unit * total_sold
 		let discount_inc = discount
 			.inc_on_idle
 			.checked_mul(&idle_blocks)
 			.ok_or(ArithmeticError::Overflow)?;
-		let total_sold = DiscountRate::checked_from_integer(subscription_state.total_sold.unique_saturated_into())
-			.ok_or(ArithmeticError::Overflow)?;
-		let discount_dec = discount
-			.dec_per_unit
-			.checked_mul(&total_sold)
-			.ok_or(ArithmeticError::Overflow)?;
+		// discount_dec = dec_per_unit * total_sold
+		let discount_dec = {
+			let adao_accuracy = Self::currency_accuracy(Token(ADAO))?;
+			// one unit: 1 ADAO, which is 10 ^ 12
+			let total_sold_units: i128 = subscription_state
+				.total_sold
+				.checked_div(adao_accuracy)
+				.expect("Currency decimals cannot be zero; qed")
+				.unique_saturated_into();
+			let dec = discount
+				.dec_per_unit
+				.checked_mul(&DiscountRate::checked_from_integer(total_sold_units).ok_or(ArithmeticError::Overflow)?)
+				.ok_or(ArithmeticError::Overflow)?;
+			dec
+		};
 		// price_discount = min(max_discount, last_discount + discount_inc - discount_dec)
 		let price_discount = {
 			let d = subscription_state
@@ -353,44 +361,57 @@ impl<T: Config> Pallet<T> {
 		let dec_per_unit = Price::from_inner(discount.dec_per_unit.into_inner().abs() as u128);
 		let inc = adao_price.checked_mul(&dec_per_unit).ok_or(ArithmeticError::Overflow)?;
 		// subscription_amount = (sqrt(2 * inc * payment_value + start_price ** 2) - startPrice) / inc
-		let x = (Price::one() + Price::one())
-			.checked_mul(&inc)
-			.ok_or(ArithmeticError::Overflow)?
-			.checked_mul(&payment_value)
-			.ok_or(ArithmeticError::Overflow)?;
+		let x = {
+			let payment_accuracy = Self::currency_accuracy(*currency_id)?;
+			(Price::one() + Price::one())
+				.checked_mul(&inc)
+				.ok_or(ArithmeticError::Overflow)?
+				.checked_mul(&payment_value)
+				.ok_or(ArithmeticError::Overflow)?
+				// payment value needs to be normalized into units
+				.checked_div(&Price::saturating_from_integer(payment_accuracy))
+				.expect("Currency accuracy cannot be zero; qed")
+		};
 		let y = start_price.checked_mul(&start_price).ok_or(ArithmeticError::Overflow)?;
 		let z = x.checked_add(&y).ok_or(ArithmeticError::Overflow)?;
 
-		let currency_id_decimals = currency_id.decimals().ok_or(Error::<T>::NoCurrencyIdDecimals)?;
-		let sqrt = balance_fixed_u128_sqrt(currency_id_decimals as u32, z)?;
-		let subscription_amount = sqrt
-			.checked_sub(&start_price)
-			.ok_or(ArithmeticError::Underflow)?
-			.checked_div(&inc)
-			.ok_or(ArithmeticError::DivisionByZero)?;
+		let subscription_amount = {
+			let sqrt = fixed_u128_sqrt(z)?;
+			let amount = sqrt
+				.checked_sub(&start_price)
+				.ok_or(ArithmeticError::Underflow)?
+				.checked_div(&inc)
+				.ok_or(ArithmeticError::DivisionByZero)?;
+			let amount_u128 = Self::fixed_u128_to_adao_balance(amount)?;
+			amount_u128
+		};
 
-		Ok((fixed_u128_to_integer(subscription_amount), price_discount))
+		Ok((subscription_amount, price_discount))
 	}
 
 	fn account_id() -> T::AccountId {
 		T::PalletId::get().into_account()
 	}
+
+	fn currency_accuracy(currency: CurrencyId) -> Result<u128, DispatchError> {
+		let decimals = currency.decimals().ok_or(Error::<T>::NoDecimalsInfo)?;
+		Ok(10_u128.pow(decimals as u32))
+	}
+
+	fn fixed_u128_to_adao_balance(n: FixedU128) -> Result<Balance, DispatchError> {
+		let adao_accuracy = Self::currency_accuracy(Token(ADAO))?;
+		Ok(n.into_inner()
+			.checked_mul(adao_accuracy)
+			.ok_or(ArithmeticError::Overflow)?
+			.checked_div(FixedU128::accuracy())
+			.expect("`FixedPointNumber` accuracy can't be zero; qed"))
+	}
 }
 
-fn balance_fixed_u128_sqrt(decimals: u32, n: FixedU128) -> Result<FixedU128, DispatchError> {
+fn fixed_u128_sqrt(n: FixedU128) -> Result<FixedU128, DispatchError> {
 	let inner = n.into_inner();
 	let inner_sqrt = inner.integer_sqrt();
-	// note that balance has its own decimal precision
-	let accuracy_sqrt = FixedU128::accuracy()
-		.checked_mul(10_u128.pow(decimals.into()))
-		.expect("decimals arithmetic can't overflow; qed")
-		.integer_sqrt();
+	let accuracy_sqrt = FixedU128::accuracy().integer_sqrt();
 	let new_inner = inner_sqrt.checked_mul(accuracy_sqrt).ok_or(ArithmeticError::Overflow)?;
 	Ok(FixedU128::from_inner(new_inner))
-}
-
-fn fixed_u128_to_integer(n: FixedU128) -> u128 {
-	n.into_inner()
-		.checked_div(FixedU128::accuracy())
-		.expect("`FixedPointNumber` accuracy can't be zero; qed")
 }
