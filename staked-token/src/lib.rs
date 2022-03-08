@@ -190,7 +190,7 @@ pub mod module {
 			let claimed_amount = Vestings::<T>::try_mutate(&who, |vesting| -> BalanceResult {
 				ensure!(!vesting.amount.is_zero(), Error::<T>::VestingNotFound);
 				let now = T::BlockNumberProvider::current_block_number();
-				ensure!(vesting.unlock_at <= now, Error::<T>::NotClaimable);
+				ensure!(vesting.unlock_at >= now, Error::<T>::NotClaimable);
 
 				T::Currency::remove_lock(VESTING_LOCK_ID, Token(SADAO), &who)?;
 
