@@ -19,6 +19,13 @@ orml-traits = { path = "../../../orml/traits", default-features = false }
 acala-primitives = { path = "../../../primitives", default-features = false }
 module-support = { path = "../../../modules/support", default-features = false }
 
+[dev-dependencies]
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.15" }
+sp-io = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.15" }
+pallet-balances = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.15" }
+orml-tokens = { path = "../../../orml/tokens" }
+module-currencies = { path = "../../../modules/currencies" }
+
 [features]
 default = ["std"]
 std = [

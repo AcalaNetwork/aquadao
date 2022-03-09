@@ -39,7 +39,7 @@ pub struct Vesting<BlockNumber> {
 }
 pub type VestingOf<T> = Vesting<<T as frame_system::Config>::BlockNumber>;
 
-const VESTING_LOCK_ID: LockIdentifier = *b"aquavest";
+pub const VESTING_LOCK_ID: LockIdentifier = *b"aquavest";
 
 #[frame_support::pallet]
 pub mod module {
@@ -95,7 +95,7 @@ pub mod module {
 		/// No vesting,
 		VestingNotFound,
 		/// Vesting is can't be claimed yet
-		NotClaimable,
+		VestingNotExpired,
 	}
 
 	#[pallet::event]
@@ -116,9 +116,6 @@ pub mod module {
 			amount: Balance,
 		},
 		UnstakeFeeRateUpdated {
-			rate: Rate,
-		},
-		InflationRatePerBlockUpdated {
 			rate: Rate,
 		},
 	}
@@ -152,9 +149,13 @@ pub mod module {
 		pub fn stake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
+			if amount == Zero::zero() {
+				return Ok(());
+			}
+
 			let received = Self::to_staked(amount)?;
 			T::Currency::transfer(Token(ADAO), &who, &Self::account_id(), amount)?;
-			T::Currency::deposit(Token(SADAO), &who, received)?;
+			T::Currency::deposit(Token(SDAO), &who, received)?;
 
 			Self::deposit_event(Event::<T>::Staked { who, amount, received });
 			Ok(())
@@ -165,14 +166,18 @@ pub mod module {
 		pub fn unstake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
+			if amount == Zero::zero() {
+				return Ok(());
+			}
+
 			let redeem = Self::from_staked(amount)?;
 			let fee = Self::unstake_fee_rate()
 				.checked_mul_int(redeem)
 				.ok_or(ArithmeticError::Overflow)?;
 			let received = redeem.checked_sub(fee).ok_or(ArithmeticError::Underflow)?;
 
-			// destroy SADAO
-			T::Currency::withdraw(Token(SADAO), &who, amount)?;
+			// destroy SDAO
+			T::Currency::withdraw(Token(SDAO), &who, amount)?;
 			// payback ADAO
 			T::Currency::transfer(Token(ADAO), &Self::account_id(), &who, received)?;
 			// fee goes to treasury
@@ -190,9 +195,9 @@ pub mod module {
 			let claimed_amount = Vestings::<T>::try_mutate(&who, |vesting| -> BalanceResult {
 				ensure!(!vesting.amount.is_zero(), Error::<T>::VestingNotFound);
 				let now = T::BlockNumberProvider::current_block_number();
-				ensure!(vesting.unlock_at >= now, Error::<T>::NotClaimable);
+				ensure!(vesting.unlock_at <= now, Error::<T>::VestingNotExpired);
 
-				T::Currency::remove_lock(VESTING_LOCK_ID, Token(SADAO), &who)?;
+				T::Currency::remove_lock(VESTING_LOCK_ID, Token(SDAO), &who)?;
 
 				let amount = vesting.amount;
 				vesting.amount = Zero::zero();
@@ -227,7 +232,7 @@ impl<T: Config> Pallet<T> {
 		let fixed_share = T::TreasuryShare::get()
 			.checked_add(&T::DaoShare::get())
 			.ok_or(ArithmeticError::Overflow)?;
-		// mint = amount * (1 - fixed_share)
+		// mint = amount / (1 - fixed_share)
 		let mint = Rate::one()
 			.checked_sub(&fixed_share)
 			.ok_or(ArithmeticError::Underflow)?
@@ -249,8 +254,8 @@ impl<T: Config> Pallet<T> {
 		T::Currency::deposit(Token(ADAO), &Self::account_id(), mint)?;
 
 		// stake the treasury and DAO share
-		T::Currency::deposit(Token(SADAO), &T::TreasuryAccount::get(), treasury_staked)?;
-		T::Currency::deposit(Token(SADAO), &T::DaoAccount::get(), dao_staked)?;
+		T::Currency::deposit(Token(SDAO), &T::TreasuryAccount::get(), treasury_staked)?;
+		T::Currency::deposit(Token(SDAO), &T::DaoAccount::get(), dao_staked)?;
 
 		//TODO: add treasury principle
 
@@ -259,7 +264,7 @@ impl<T: Config> Pallet<T> {
 
 	fn exchange_rate() -> Rate {
 		let total = T::Currency::total_balance(Token(ADAO), &Self::account_id());
-		let supply = T::Currency::total_issuance(Token(SADAO));
+		let supply = T::Currency::total_issuance(Token(SDAO));
 		if supply.is_zero() {
 			T::DefaultExchangeRate::get()
 		} else {
@@ -267,7 +272,7 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
-	/// Get SADAO token amount from given ADAO `amount`, based on exchange rate.
+	/// Get SDAO token amount from given ADAO `amount`, based on exchange rate.
 	fn to_staked(amount: Balance) -> BalanceResult {
 		Self::exchange_rate()
 			.reciprocal()
@@ -276,7 +281,7 @@ impl<T: Config> Pallet<T> {
 			.ok_or(ArithmeticError::Overflow.into())
 	}
 
-	/// Get ADAO token amount from given SADAO `amount`, based on exchange rate.
+	/// Get ADAO token amount from given SDAO `amount`, based on exchange rate.
 	fn from_staked(amount: Balance) -> BalanceResult {
 		Self::exchange_rate()
 			.checked_mul_int(amount)
@@ -316,9 +321,9 @@ impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
 		T::Currency::deposit(Token(ADAO), &Self::account_id(), mint)?;
 
 		// mint & stake the treasury and DAO share
-		T::Currency::deposit(Token(SADAO), who, staked)?;
-		T::Currency::deposit(Token(SADAO), &T::TreasuryAccount::get(), treasury_staked)?;
-		T::Currency::deposit(Token(SADAO), &T::DaoAccount::get(), dao_staked)?;
+		T::Currency::deposit(Token(SDAO), who, staked)?;
+		T::Currency::deposit(Token(SDAO), &T::TreasuryAccount::get(), treasury_staked)?;
+		T::Currency::deposit(Token(SDAO), &T::DaoAccount::get(), dao_staked)?;
 
 		// SDAO token vesting, extend the existing vesting period if not claimable.
 		Vestings::<T>::try_mutate(&who, |vesting| -> DispatchResult {
@@ -329,7 +334,7 @@ impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
 				Zero::zero()
 			};
 			let to_lock = staked.saturating_add(existing_locked);
-			T::Currency::set_lock(VESTING_LOCK_ID, Token(SADAO), who, to_lock)?;
+			T::Currency::set_lock(VESTING_LOCK_ID, Token(SDAO), who, to_lock)?;
 
 			vesting.amount = to_lock;
 			vesting.unlock_at = now.saturating_add(vesting_period);
