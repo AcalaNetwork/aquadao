@@ -200,11 +200,17 @@ fn mint_for_subscription_works() {
 			// alice SDAO: += 800 / 8
 			assert_eq!(Currencies::total_balance(SDAO_CURRENCY, &ALICE), 100);
 			// vested, not transferrable
-			assert_noop!(Currencies::transfer(RawOrigin::Signed(ALICE).into(), BOB, SDAO_CURRENCY, 1), orml_tokens::Error::<Runtime>::LiquidityRestrictions);
-			assert_eq!(AquaStakedToken::vestings(&ALICE), Vesting {
-				unlock_at: 11,
-				amount: 100,
-			});
+			assert_noop!(
+				Currencies::transfer(RawOrigin::Signed(ALICE).into(), BOB, SDAO_CURRENCY, 1),
+				orml_tokens::Error::<Runtime>::LiquidityRestrictions
+			);
+			assert_eq!(
+				AquaStakedToken::vestings(&ALICE),
+				Vesting {
+					unlock_at: 11,
+					amount: 100,
+				}
+			);
 			// treasury, dao shares: 1_000 * share / exchange_rate = 1000 * 0.1 / 8
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &TreasuryAccount::get()), 12);
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &DaoAccount::get()), 12);

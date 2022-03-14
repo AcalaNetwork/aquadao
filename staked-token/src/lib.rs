@@ -94,7 +94,7 @@ pub mod module {
 	pub enum Error<T> {
 		/// No vesting,
 		VestingNotFound,
-		/// Vesting is can't be claimed yet
+		/// Vesting is not expired yet
 		VestingNotExpired,
 	}
 
@@ -262,7 +262,7 @@ impl<T: Config> Pallet<T> {
 		Ok(())
 	}
 
-	fn exchange_rate() -> Rate {
+	pub fn exchange_rate() -> Rate {
 		let total = T::Currency::total_balance(Token(ADAO), &Self::account_id());
 		let supply = T::Currency::total_issuance(Token(SDAO));
 		if supply.is_zero() {
