@@ -29,6 +29,7 @@ pub trait WeightInfo {
 	fn create_subscription() -> Weight;
 	fn update_subscription() -> Weight;
 	fn close_subscription() -> Weight;
+	fn subscribe() -> Weight;
 }
 
 /// Weights for ecocsystem_aqua_dao using the Acala node and recommended hardware.
@@ -43,6 +44,9 @@ impl<T: frame_system::Config> WeightInfo for AcalaWeight<T> {
 	fn close_subscription() -> Weight {
 		0
 	}
+	fn subscribe() -> Weight {
+		0
+	}
 }
 
 // For backwards compatibility and tests
@@ -54,6 +58,9 @@ impl WeightInfo for () {
 		0
 	}
 	fn close_subscription() -> Weight {
+		0
+	}
+	fn subscribe() -> Weight {
 		0
 	}
 }

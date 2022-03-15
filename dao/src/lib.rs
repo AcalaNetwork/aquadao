@@ -223,7 +223,7 @@ pub mod module {
 			Ok(())
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::subscribe())]
 		#[transactional]
 		pub fn subscribe(
 			origin: OriginFor<T>,
