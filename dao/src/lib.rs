@@ -21,7 +21,7 @@ use acala_primitives::{
 	TokenInfo,
 	TokenSymbol::*,
 };
-use module_support::{DEXPriceProvider, Price, PriceProvider};
+use module_support::{DEXPriceProvider, Price, PriceProvider, Ratio};
 
 mod mock;
 mod tests;
@@ -40,7 +40,8 @@ pub struct Subscription<BlockNumber> {
 	pub vesting_period: BlockNumber,
 	/// minimum subscription amount
 	pub min_amount: Balance,
-	pub min_price: Price,
+	/// At least this amount of subscribed currency per aDAO
+	pub min_ratio: Ratio,
 	pub amount: Balance,
 	pub discount: Discount,
 	pub state: SubscriptionState<BlockNumber>,
@@ -183,7 +184,7 @@ pub mod module {
 			subscription_id: SubscriptionId,
 			vesting_period: Option<T::BlockNumber>,
 			min_amount: Option<Balance>,
-			min_price: Option<Price>,
+			min_ratio: Option<Ratio>,
 			amount: Option<Balance>,
 			discount: Option<Discount>,
 		) -> DispatchResult {
@@ -198,8 +199,8 @@ pub mod module {
 				if let Some(new_min_amount) = min_amount {
 					subscription.min_amount = new_min_amount;
 				}
-				if let Some(new_min_price) = min_price {
-					subscription.min_price = new_min_price;
+				if let Some(new_min_ratio) = min_ratio {
+					subscription.min_ratio = new_min_ratio;
 				}
 				if let Some(new_amount) = amount {
 					subscription.amount = new_amount;
@@ -287,7 +288,7 @@ impl<T: Config> Pallet<T> {
 	) -> Result<(Balance, DiscountRate), DispatchError> {
 		let Subscription {
 			currency_id,
-			min_price,
+			min_ratio,
 			discount,
 			state: subscription_state,
 			..
@@ -341,7 +342,7 @@ impl<T: Config> Pallet<T> {
 			FixedI128::min(d, discount.max)
 		};
 
-		// start_price = max(price * (1 - price_discount), min_price)
+		// start_price = price * (1 - price_discount)
 		let start_price = {
 			let ratio = DiscountRate::one()
 				.checked_sub(&price_discount)
@@ -351,7 +352,7 @@ impl<T: Config> Pallet<T> {
 			let discounted_price = adao_price
 				.checked_mul(&ratio_fixed_u128)
 				.ok_or(ArithmeticError::Overflow)?;
-			Price::max(discounted_price, *min_price)
+			discounted_price
 		};
 
 		let payment_value = Price::checked_from_integer(payment)
@@ -360,7 +361,7 @@ impl<T: Config> Pallet<T> {
 			.ok_or(ArithmeticError::Overflow)?;
 		let dec_per_unit = Price::from_inner(discount.dec_per_unit.into_inner().abs() as u128);
 		let inc = adao_price.checked_mul(&dec_per_unit).ok_or(ArithmeticError::Overflow)?;
-		// subscription_amount = (sqrt(2 * inc * payment_value + start_price ** 2) - startPrice) / inc
+		// receive_amount = (sqrt(2 * inc * payment_value + start_price ** 2) - startPrice) / inc
 		let x = {
 			let payment_accuracy = Self::currency_accuracy(*currency_id)?;
 			(Price::one() + Price::one())
@@ -375,7 +376,7 @@ impl<T: Config> Pallet<T> {
 		let y = start_price.checked_mul(&start_price).ok_or(ArithmeticError::Overflow)?;
 		let z = x.checked_add(&y).ok_or(ArithmeticError::Overflow)?;
 
-		let subscription_amount = {
+		let receive_amount = {
 			let sqrt = fixed_u128_sqrt(z)?;
 			let amount = sqrt
 				.checked_sub(&start_price)
@@ -385,8 +386,14 @@ impl<T: Config> Pallet<T> {
 			let amount_u128 = Self::fixed_u128_to_adao_balance(amount)?;
 			amount_u128
 		};
+		let max_amount = min_ratio
+			.reciprocal()
+			.ok_or(ArithmeticError::DivisionByZero)?
+			.checked_mul_int(payment)
+			.ok_or(ArithmeticError::Overflow)?;
+		let final_amount = receive_amount.min(max_amount);
 
-		Ok((subscription_amount, price_discount))
+		Ok((final_amount, price_discount))
 	}
 
 	fn account_id() -> T::AccountId {

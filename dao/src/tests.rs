@@ -7,7 +7,7 @@ use mock::{Event, *};
 
 use frame_support::{assert_noop, assert_ok};
 use frame_system::RawOrigin;
-use sp_runtime::traits::{BadOrigin, Zero};
+use sp_runtime::traits::BadOrigin;
 
 fn dollar(currency_id: CurrencyId) -> Balance {
 	10u128.saturating_pow(currency_id.decimals().expect("Not support Non-Token decimals").into())
@@ -20,7 +20,7 @@ fn default_subscription() -> SubscriptionOf<Runtime> {
 		currency_id: AUSD_CURRENCY,
 		vesting_period: 1_000,
 		min_amount: dollar(ADAO_CURRENCY) * 10,
-		min_price: Price::one(),
+		min_ratio: Ratio::saturating_from_rational(1, 10),
 		amount,
 		discount: Discount {
 			max: DiscountRate::saturating_from_rational(2, 10),
@@ -79,7 +79,7 @@ pub fn update_subscription_works() {
 			0,
 			Some(1),
 			Some(1),
-			Some(Price::zero()),
+			Some(Ratio::one()),
 			Some(0),
 			Some(new_discount),
 		));
@@ -89,7 +89,7 @@ pub fn update_subscription_works() {
 				currency_id: AUSD_CURRENCY,
 				vesting_period: 1,
 				min_amount: 1,
-				min_price: Price::zero(),
+				min_ratio: Ratio::one(),
 				amount: 0,
 				discount: new_discount,
 				state: SubscriptionState {
@@ -165,7 +165,7 @@ fn subscribe_works() {
 			));
 
 			let new_subscription = AquaDao::subscriptions(0).unwrap();
-			assert_eq!(new_subscription.state.total_sold, 99_995_000_000_000);
+			assert_eq!(new_subscription.state.total_sold, 105_370_000_000_000);
 			assert_eq!(new_subscription.state.last_sold_at, 1);
 			assert_eq!(
 				new_subscription.state.last_discount,
@@ -175,13 +175,13 @@ fn subscribe_works() {
 				Currencies::free_balance(AUSD_CURRENCY, &ALICE),
 				1_999_900 * dollar(AUSD_CURRENCY)
 			);
-			assert_eq!(MockStakedToken::minted(), (99_995_000_000_000, 1_000));
+			assert_eq!(MockStakedToken::minted(), (105_370_000_000_000, 1_000));
 
 			System::assert_has_event(Event::AquaDao(crate::Event::Subscribed {
 				who: ALICE,
 				subscription_id: 0,
 				payment_amount,
-				subscription_amount: 99_995_000_000_000,
+				subscription_amount: 105_370_000_000_000,
 			}));
 		});
 }
@@ -201,7 +201,7 @@ fn subscribe_fails_if_below_min_amount() {
 			let subscription = default_subscription();
 			assert_ok!(AquaDao::create_subscription(RawOrigin::Root.into(), subscription));
 
-			let payment_amount = dollar(AUSD_CURRENCY) * 10;
+			let payment_amount = dollar(AUSD_CURRENCY) * 1;
 			assert_noop!(
 				AquaDao::subscribe(RawOrigin::Signed(ALICE).into(), 0, payment_amount, 0),
 				Error::<Runtime>::BelowMinSubscriptionAmount
@@ -248,7 +248,7 @@ fn subscribe_fails_if_below_target_amount() {
 			let subscription = default_subscription();
 			assert_ok!(AquaDao::create_subscription(RawOrigin::Root.into(), subscription));
 
-			let payment_amount = dollar(AUSD_CURRENCY) * 100;
+			let payment_amount = dollar(AUSD_CURRENCY) * 10;
 			assert_noop!(
 				AquaDao::subscribe(
 					RawOrigin::Signed(ALICE).into(),
