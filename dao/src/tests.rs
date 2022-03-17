@@ -187,6 +187,39 @@ fn subscribe_works() {
 }
 
 #[test]
+fn subscribe_with_below_min_ratio_works() {
+	ExtBuilder::default()
+		.balances(vec![(
+			AccountId::from(ALICE),
+			AUSD_CURRENCY,
+			2_000_000 * dollar(AUSD_CURRENCY),
+		)])
+		.build()
+		.execute_with(|| {
+			System::set_block_number(1);
+
+			// min_ratio is 1
+			let mut subscription = default_subscription();
+			subscription.min_ratio = Ratio::one();
+			assert_ok!(AquaDao::create_subscription(RawOrigin::Root.into(), subscription));
+
+			let payment_amount = dollar(AUSD_CURRENCY) * 100;
+			assert_ok!(AquaDao::subscribe(
+				RawOrigin::Signed(ALICE).into(),
+				0,
+				payment_amount,
+				0
+			));
+			System::assert_has_event(Event::AquaDao(crate::Event::Subscribed {
+				who: ALICE,
+				subscription_id: 0,
+				payment_amount,
+				subscription_amount: dollar(ADAO_CURRENCY) * 100,
+			}));
+		});
+}
+
+#[test]
 fn subscribe_fails_if_below_min_amount() {
 	ExtBuilder::default()
 		.balances(vec![(
