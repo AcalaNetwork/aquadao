@@ -216,3 +216,65 @@ fn mint_for_subscription_works() {
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &DaoAccount::get()), 12);
 		});
 }
+
+#[test]
+fn new_mint_extends_non_expired_vesting() {
+	ExtBuilder::default()
+		.balances(vec![
+			(AccountId::from(BOB), SDAO_CURRENCY, 100),
+			(AquaStakedToken::account_id(), ADAO_CURRENCY, 100),
+		])
+		.build()
+		.execute_with(|| {
+			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
+			assert_eq!(
+				AquaStakedToken::vestings(&ALICE),
+				Vesting {
+					unlock_at: 11,
+					amount: 10,
+				}
+			);
+
+			MockBlockNumberProvider::set_block_number(8);
+			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
+			assert_eq!(
+				AquaStakedToken::vestings(&ALICE),
+				Vesting {
+					unlock_at: 18,
+					amount: 20,
+				}
+			);
+		});
+}
+
+#[test]
+fn new_mint_unlock_expired_vesting() {
+	ExtBuilder::default()
+		.balances(vec![
+			(AccountId::from(BOB), SDAO_CURRENCY, 100),
+			(AquaStakedToken::account_id(), ADAO_CURRENCY, 100),
+		])
+		.build()
+		.execute_with(|| {
+			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
+			assert_eq!(
+				AquaStakedToken::vestings(&ALICE),
+				Vesting {
+					unlock_at: 11,
+					amount: 10,
+				}
+			);
+
+			MockBlockNumberProvider::set_block_number(15);
+			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
+			assert_eq!(
+				AquaStakedToken::vestings(&ALICE),
+				Vesting {
+					unlock_at: 25,
+					amount: 10,
+				}
+			);
+
+			assert_eq!(Currencies::total_balance(SDAO_CURRENCY, &ALICE), 20);
+		});
+}
