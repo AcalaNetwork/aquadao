@@ -169,6 +169,24 @@ impl StakedTokenManager<AccountId, BlockNumber> for MockStakedToken {
 	}
 }
 
+thread_local! {
+	static CURRENT_BLOCK_NUMBER: RefCell<BlockNumber> = RefCell::new(1);
+}
+
+pub struct MockBlockNumberProvider;
+impl MockBlockNumberProvider {
+	pub fn set_block_number(n: BlockNumber) {
+		CURRENT_BLOCK_NUMBER.with(|v| *v.borrow_mut() = n);
+	}
+}
+impl BlockNumberProvider for MockBlockNumberProvider {
+	type BlockNumber = BlockNumber;
+
+	fn current_block_number() -> Self::BlockNumber {
+		CURRENT_BLOCK_NUMBER.with(|v| *v.borrow())
+	}
+}
+
 parameter_types!(
 	pub const StableCurrencyId: CurrencyId = AUSD_CURRENCY;
 	pub AquaDaoPalletId: PalletId = PalletId(*b"aqua/dao");
@@ -181,6 +199,7 @@ impl Config for Runtime {
 	type CreatingOrigin = EnsureRoot<AccountId>;
 	type AssetPriceProvider = MockPriceProvider;
 	type AdaoPriceProvider = MockPriceProvider;
+	type BlockNumberProvider = MockBlockNumberProvider;
 	type StakedToken = MockStakedToken;
 	type PalletId = AquaDaoPalletId;
 	type WeightInfo = ();

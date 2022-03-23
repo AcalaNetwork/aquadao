@@ -6,8 +6,8 @@ use frame_support::{pallet_prelude::*, traits::EnsureOrigin, transactional, Pall
 use frame_system::pallet_prelude::*;
 use sp_runtime::{
 	traits::{
-		AccountIdConversion, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, IntegerSquareRoot, One,
-		UniqueSaturatedInto,
+		AccountIdConversion, BlockNumberProvider, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, IntegerSquareRoot,
+		One, UniqueSaturatedInto,
 	},
 	ArithmeticError, FixedI128, FixedPointNumber, FixedU128,
 };
@@ -95,6 +95,9 @@ pub mod module {
 
 		/// Used for `ADAO` token price.
 		type AdaoPriceProvider: DEXPriceProvider<CurrencyId>;
+
+		/// The block number provider
+		type BlockNumberProvider: BlockNumberProvider<BlockNumber = Self::BlockNumber>;
 
 		type StakedToken: StakedTokenManager<Self::AccountId, Self::BlockNumber>;
 
@@ -235,7 +238,7 @@ pub mod module {
 
 			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
-				let now = frame_system::Pallet::<T>::block_number();
+				let now = T::BlockNumberProvider::current_block_number();
 				let (subscription_amount, last_discount) =
 					Self::subscription_amount(&subscription, payment_amount, now)?;
 
