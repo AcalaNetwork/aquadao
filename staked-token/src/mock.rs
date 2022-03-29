@@ -123,6 +123,8 @@ parameter_types!(
 	pub DaoDefaultExchangeRate: Rate = Rate::one();
 	pub DaoAccount: AccountId = DAO_ACCOUNT;
 	pub TreasuryAccount: AccountId = TREASURY_ACCOUNT;
+	pub StakedTokenLockIdentifier: LockIdentifier = *b"aqu/vest";
+	pub MaxVestingChunks: u32 = 5;
 );
 
 thread_local! {
@@ -155,6 +157,8 @@ impl Config for Runtime {
 	type PalletId = AquaStakedTokenPalletId;
 	type TreasuryAccount = TreasuryAccount;
 	type DaoAccount = DaoAccount;
+	type LockIdentifier = StakedTokenLockIdentifier;
+	type MaxVestingChunks = MaxVestingChunks;
 	type WeightInfo = ();
 }
 

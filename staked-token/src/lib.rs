@@ -4,6 +4,7 @@
 
 use frame_support::{
 	pallet_prelude::*,
+	parameter_types,
 	traits::{EnsureOrigin, Get, LockIdentifier},
 	transactional, PalletId,
 };
@@ -17,6 +18,7 @@ use sp_std::result::Result;
 use orml_traits::{MultiCurrency, MultiLockableCurrency};
 
 use acala_primitives::{
+	bonding::{self, BondingController},
 	Balance,
 	CurrencyId::{self, Token},
 	TokenSymbol::*,
@@ -31,15 +33,6 @@ pub mod weights;
 pub use weights::WeightInfo;
 
 pub use module::*;
-
-#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, Default)]
-pub struct Vesting<BlockNumber> {
-	pub unlock_at: BlockNumber,
-	pub amount: Balance,
-}
-pub type VestingOf<T> = Vesting<<T as frame_system::Config>::BlockNumber>;
-
-pub const VESTING_LOCK_ID: LockIdentifier = *b"aquavest";
 
 #[frame_support::pallet]
 pub mod module {
@@ -79,6 +72,12 @@ pub mod module {
 		#[pallet::constant]
 		type DaoAccount: Get<Self::AccountId>;
 
+		#[pallet::constant]
+		type LockIdentifier: Get<LockIdentifier>;
+
+		#[pallet::constant]
+		type MaxVestingChunks: Get<u32>;
+
 		type WeightInfo: WeightInfo;
 	}
 
@@ -86,20 +85,27 @@ pub mod module {
 	#[pallet::getter(fn unstake_fee_rate)]
 	pub type UnstakeFeeRate<T> = StorageValue<_, Rate, ValueQuery>;
 
+	pub type BondingLedgerOf<T> = bonding::BondingLedgerOf<Pallet<T>>;
+
+	/// Vesting ledger
+	///
+	/// Ledger: map AccountId => Option<BondingLedger>
 	#[pallet::storage]
-	#[pallet::getter(fn vestings)]
-	pub type Vestings<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, VestingOf<T>, ValueQuery>;
+	#[pallet::getter(fn ledger)]
+	pub type VestingLedger<T: Config> = StorageMap<_, Twox64Concat, T::AccountId, BondingLedgerOf<T>, OptionQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// No vesting,
+		/// No vesting.
 		VestingNotFound,
-		/// Vesting is not expired yet
-		VestingNotExpired,
+		/// Max vesting chunk exceeded.
+		MaxVestingChunkExceeded,
+		/// Below min Vesting amount.
+		BelowMinVestingAmount,
 	}
 
 	#[pallet::event]
-	#[pallet::generate_deposit(fn deposit_event)]
+	#[pallet::generate_deposit(pub(crate) fn deposit_event)]
 	pub enum Event<T: Config> {
 		Staked {
 			who: T::AccountId,
@@ -117,6 +123,10 @@ pub mod module {
 		},
 		UnstakeFeeRateUpdated {
 			rate: Rate,
+		},
+		VestingAdded {
+			who: T::AccountId,
+			amount: Balance,
 		},
 	}
 
@@ -192,23 +202,14 @@ pub mod module {
 		pub fn claim(origin: OriginFor<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
-			let claimed_amount = Vestings::<T>::try_mutate(&who, |vesting| -> BalanceResult {
-				ensure!(!vesting.amount.is_zero(), Error::<T>::VestingNotFound);
-				let now = T::BlockNumberProvider::current_block_number();
-				ensure!(vesting.unlock_at <= now, Error::<T>::VestingNotExpired);
-
-				T::Currency::remove_lock(VESTING_LOCK_ID, Token(SDAO), &who)?;
-
-				let amount = vesting.amount;
-				vesting.amount = Zero::zero();
-
-				Ok(amount)
-			})?;
-
-			Self::deposit_event(Event::<T>::Claimed {
-				who,
-				amount: claimed_amount,
-			});
+			let now = T::BlockNumberProvider::current_block_number();
+			let maybe_change = <Self as BondingController>::withdraw_unbonded(&who, now)?;
+			if let Some(change) = maybe_change {
+				Self::deposit_event(Event::<T>::Claimed {
+					who,
+					amount: change.change,
+				});
+			}
 			Ok(())
 		}
 
@@ -294,6 +295,7 @@ impl<T: Config> Pallet<T> {
 }
 
 impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
+	#[transactional]
 	fn mint_for_subscription(who: &T::AccountId, amount: Balance, vesting_period: T::BlockNumber) -> DispatchResult {
 		// fixed_share = treasury_share + dao_share
 		let fixed_share = T::TreasuryShare::get()
@@ -325,25 +327,54 @@ impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
 		T::Currency::deposit(Token(SDAO), &T::TreasuryAccount::get(), treasury_staked)?;
 		T::Currency::deposit(Token(SDAO), &T::DaoAccount::get(), dao_staked)?;
 
-		// SDAO token vesting, extend the existing vesting period if not claimable.
-		Vestings::<T>::try_mutate(&who, |vesting| -> DispatchResult {
-			let now = T::BlockNumberProvider::current_block_number();
-			let existing_locked = if !vesting.amount.is_zero() && vesting.unlock_at > now {
-				vesting.amount
-			} else {
-				Zero::zero()
-			};
-			let to_lock = staked.saturating_add(existing_locked);
-			T::Currency::set_lock(VESTING_LOCK_ID, Token(SDAO), who, to_lock)?;
-
-			vesting.amount = to_lock;
-			vesting.unlock_at = now.saturating_add(vesting_period);
-
-			Ok(())
-		})?;
+		// SDAO token vesting
+		let change = <Self as BondingController>::bond(&who, staked)?;
+		let unlock_at = T::BlockNumberProvider::current_block_number().saturating_add(vesting_period);
+		let _ = <Self as BondingController>::unbond(&who, staked, unlock_at)?;
+		if let Some(change) = change {
+			Self::deposit_event(Event::VestingAdded {
+				who: who.clone(),
+				amount: change.change,
+			});
+		}
 
 		//TODO: add treasury principle
 
 		Ok(())
+	}
+}
+
+parameter_types! {
+	pub const ZeroMinVesting: Balance = 0;
+}
+
+impl<T: Config> BondingController for Pallet<T> {
+	// min subscription was checked on minting, so we don't need to check it here.
+	type MinBond = ZeroMinVesting;
+	type MaxUnbondingChunks = T::MaxVestingChunks;
+	type Moment = T::BlockNumber;
+	type AccountId = T::AccountId;
+
+	type Ledger = VestingLedger<T>;
+
+	fn available_balance(who: &Self::AccountId, ledger: &BondingLedgerOf<T>) -> Balance {
+		let free_balance = T::Currency::free_balance(Token(SDAO), who);
+		free_balance.saturating_sub(ledger.total())
+	}
+
+	fn apply_ledger(who: &Self::AccountId, ledger: &BondingLedgerOf<T>) -> DispatchResult {
+		if ledger.is_empty() {
+			T::Currency::remove_lock(T::LockIdentifier::get(), Token(SDAO), who)
+		} else {
+			T::Currency::set_lock(T::LockIdentifier::get(), Token(SDAO), who, ledger.total())
+		}
+	}
+
+	fn convert_error(err: bonding::Error) -> DispatchError {
+		match err {
+			bonding::Error::BelowMinBondThreshold => Error::<T>::BelowMinVestingAmount.into(),
+			bonding::Error::MaxUnlockChunksExceeded => Error::<T>::MaxVestingChunkExceeded.into(),
+			bonding::Error::NotBonded => Error::<T>::VestingNotFound.into(),
+		}
 	}
 }

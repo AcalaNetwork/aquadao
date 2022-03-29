@@ -73,18 +73,16 @@ fn unstake_works() {
 #[test]
 fn claim_works() {
 	ExtBuilder::default()
-		.balances(vec![(AccountId::from(ALICE), SDAO_CURRENCY, 10)])
+		// exchange rate: 1 SDAO = 10 ADAO
+		.balances(vec![
+			(AccountId::from(BOB), SDAO_CURRENCY, 10),
+			(AquaStakedToken::account_id(), ADAO_CURRENCY, 100),
+		])
 		.build()
 		.execute_with(|| {
 			System::set_block_number(1);
-			assert_ok!(Currencies::set_lock(VESTING_LOCK_ID, SDAO_CURRENCY, &ALICE, 10));
-			Vestings::<Runtime>::insert(
-				&ALICE,
-				Vesting {
-					unlock_at: 10,
-					amount: 10,
-				},
-			);
+
+			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 100, 10));
 
 			MockBlockNumberProvider::set_block_number(11);
 			assert_ok!(AquaStakedToken::claim(RawOrigin::Signed(ALICE).into()));
@@ -106,29 +104,6 @@ fn cannot_claim_if_no_vesting() {
 			Error::<Runtime>::VestingNotFound
 		);
 	});
-}
-
-#[test]
-fn cannot_claim_if_vesting_is_not_expired() {
-	ExtBuilder::default()
-		.balances(vec![(AccountId::from(ALICE), SDAO_CURRENCY, 10)])
-		.build()
-		.execute_with(|| {
-			assert_ok!(Currencies::set_lock(VESTING_LOCK_ID, SDAO_CURRENCY, &ALICE, 10));
-			Vestings::<Runtime>::insert(
-				&ALICE,
-				Vesting {
-					unlock_at: 10,
-					amount: 10,
-				},
-			);
-
-			MockBlockNumberProvider::set_block_number(9);
-			assert_noop!(
-				AquaStakedToken::claim(RawOrigin::Signed(ALICE).into()),
-				Error::<Runtime>::VestingNotExpired
-			);
-		});
 }
 
 #[test]
@@ -204,13 +179,6 @@ fn mint_for_subscription_works() {
 				Currencies::transfer(RawOrigin::Signed(ALICE).into(), BOB, SDAO_CURRENCY, 1),
 				orml_tokens::Error::<Runtime>::LiquidityRestrictions
 			);
-			assert_eq!(
-				AquaStakedToken::vestings(&ALICE),
-				Vesting {
-					unlock_at: 11,
-					amount: 100,
-				}
-			);
 			// treasury, dao shares: 1_000 * share / exchange_rate = 1000 * 0.1 / 8
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &TreasuryAccount::get()), 12);
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &DaoAccount::get()), 12);
@@ -218,63 +186,24 @@ fn mint_for_subscription_works() {
 }
 
 #[test]
-fn new_mint_extends_non_expired_vesting() {
+fn vesting_over_max_chunks_fails() {
 	ExtBuilder::default()
+		// exchange rate: 1 SDAO = 10 ADAO
 		.balances(vec![
-			(AccountId::from(BOB), SDAO_CURRENCY, 100),
+			(AccountId::from(BOB), SDAO_CURRENCY, 10),
 			(AquaStakedToken::account_id(), ADAO_CURRENCY, 100),
 		])
 		.build()
 		.execute_with(|| {
-			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
-			assert_eq!(
-				AquaStakedToken::vestings(&ALICE),
-				Vesting {
-					unlock_at: 11,
-					amount: 10,
-				}
-			);
+			for i in 0..5 {
+				MockBlockNumberProvider::set_block_number(i + 1);
+				assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 100, 10));
+			}
 
-			MockBlockNumberProvider::set_block_number(8);
-			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
-			assert_eq!(
-				AquaStakedToken::vestings(&ALICE),
-				Vesting {
-					unlock_at: 18,
-					amount: 20,
-				}
+			MockBlockNumberProvider::set_block_number(6);
+			assert_noop!(
+				AquaStakedToken::mint_for_subscription(&ALICE, 100, 10),
+				Error::<Runtime>::MaxVestingChunkExceeded,
 			);
-		});
-}
-
-#[test]
-fn new_mint_unlock_expired_vesting() {
-	ExtBuilder::default()
-		.balances(vec![
-			(AccountId::from(BOB), SDAO_CURRENCY, 100),
-			(AquaStakedToken::account_id(), ADAO_CURRENCY, 100),
-		])
-		.build()
-		.execute_with(|| {
-			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
-			assert_eq!(
-				AquaStakedToken::vestings(&ALICE),
-				Vesting {
-					unlock_at: 11,
-					amount: 10,
-				}
-			);
-
-			MockBlockNumberProvider::set_block_number(15);
-			assert_ok!(AquaStakedToken::mint_for_subscription(&ALICE, 10, 10));
-			assert_eq!(
-				AquaStakedToken::vestings(&ALICE),
-				Vesting {
-					unlock_at: 25,
-					amount: 10,
-				}
-			);
-
-			assert_eq!(Currencies::total_balance(SDAO_CURRENCY, &ALICE), 20);
 		});
 }
