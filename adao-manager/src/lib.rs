@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{pallet_prelude::*, traits::EnsureOrigin, transactional, PalletId, log};
+use frame_support::{log, pallet_prelude::*, traits::EnsureOrigin, transactional, PalletId};
 use frame_system::pallet_prelude::*;
 use sp_runtime::{
 	traits::{AccountIdConversion, SaturatedConversion, Saturating, UniqueSaturatedInto, Zero},
@@ -166,7 +166,7 @@ pub mod module {
 							if let Err(e) = Self::rebalance(strategy, diff) {
 								log::error!(target: "adao-manager", "Rebalance failed: {:?}", e);
 							}
-						},
+						}
 						Err(e) => log::error!(target: "adao-manager", "Getting allocation diff failed: {:?}", e),
 					}
 				});
@@ -293,25 +293,20 @@ impl<T: Config> Pallet<T> {
 
 	fn allocation_diff() -> Result<BTreeMap<CurrencyId, AllocationDiff>, DispatchError> {
 		let (current_allocations, total_value) = Self::current_allocations()?;
-		//TODO: `target_allocations` not needed?
-		let target_allocations = Self::target_allocations();
 		let target_allocation_percents = Self::target_allocation_percents();
 
 		let mut diff = BTreeMap::new();
 
-		for (currency_id, _) in target_allocations.clone().into_iter() {
-			let target_percent = target_allocation_percents
-				.get(&currency_id)
-				.expect("target allocation percents should be initialized; qed");
+		for (currency_id, target_percent) in target_allocation_percents.iter() {
 			let target_value = target_percent.value.saturating_mul_int(total_value);
-			let price = T::AssetPriceProvider::get_relative_price(currency_id, T::StableCurrencyId::get())
+			let price = T::AssetPriceProvider::get_relative_price(*currency_id, T::StableCurrencyId::get())
 				.ok_or(Error::<T>::NoPrice)?;
 			let target_amount = price
 				.reciprocal()
 				.ok_or(ArithmeticError::DivisionByZero)?
 				.saturating_mul_int(target_value);
 
-			if let Some(current) = current_allocations.get(&currency_id) {
+			if let Some(current) = current_allocations.get(currency_id) {
 				let range_diff = if current.percent < target_percent.min {
 					// current.percent - target.minPercent
 					let mut d_inner: i128 = target_percent
@@ -360,7 +355,7 @@ impl<T: Config> Pallet<T> {
 				};
 
 				diff.insert(
-					currency_id,
+					*currency_id,
 					AllocationDiff {
 						current: current.percent,
 						target: target_percent.value,
@@ -370,10 +365,6 @@ impl<T: Config> Pallet<T> {
 					},
 				);
 			} else {
-				let target_percent = target_allocation_percents
-					.get(&currency_id)
-					.expect("target allocation percents should be initialized; qed");
-
 				// diff_percent = -target_percent.value
 				let diff_percent = {
 					let d_inner: i128 = target_percent.value.into_inner().unique_saturated_into();
@@ -390,7 +381,7 @@ impl<T: Config> Pallet<T> {
 					a.saturating_mul(-1)
 				};
 				diff.insert(
-					currency_id,
+					*currency_id,
 					AllocationDiff {
 						current: FixedU128::zero(),
 						target: target_percent.value,
@@ -403,7 +394,7 @@ impl<T: Config> Pallet<T> {
 		}
 
 		for (currency_id, current) in current_allocations.into_iter() {
-			if !target_allocations.contains_key(&currency_id) {
+			if !target_allocation_percents.contains_key(&currency_id) {
 				diff.insert(
 					currency_id,
 					AllocationDiff {
@@ -446,6 +437,11 @@ impl<T: Config> Pallet<T> {
 					percent: Default::default(),
 				},
 			);
+		}
+
+		// Defensively check if it is zero, should never be in this state
+		if total_value.is_zero() {
+			return Err(Error::<T>::ZeroTargetAllocation.into());
 		}
 
 		allocations.iter_mut().for_each(|(_, allocation)| {
