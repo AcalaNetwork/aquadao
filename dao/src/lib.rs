@@ -7,7 +7,7 @@ use frame_system::pallet_prelude::*;
 use sp_runtime::{
 	traits::{
 		AccountIdConversion, BlockNumberProvider, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, IntegerSquareRoot,
-		One, UniqueSaturatedInto,
+		One, Saturating, UniqueSaturatedInto, Zero,
 	},
 	ArithmeticError, FixedI128, FixedPointNumber, FixedU128,
 };
@@ -43,17 +43,19 @@ pub struct Subscription<BlockNumber> {
 	/// At least this amount of subscribed currency per aDAO
 	pub min_ratio: Ratio,
 	pub amount: Balance,
-	pub discount: Discount,
+	pub discount: Discount<BlockNumber>,
 	pub state: SubscriptionState<BlockNumber>,
 }
 
 pub type SubscriptionOf<T> = Subscription<<T as frame_system::Config>::BlockNumber>;
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, Default, TypeInfo)]
-pub struct Discount {
+pub struct Discount<BlockNumber> {
 	/// Max discount rate.
 	pub max: DiscountRate,
-	/// The percentage to increase on each idle block.
+	/// The amount of block number, as the unit for `inc_on_idle` calculation.
+	pub interval: BlockNumber,
+	/// The percentage to increase for each interval.
 	/// `idle`: the period when there is no new subscription.
 	pub inc_on_idle: DiscountRate,
 	/// The percentage to decrease with 1 aDAO subscribed.
@@ -163,7 +165,15 @@ pub mod module {
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(<T as Config>::WeightInfo::create_subscription())]
 		#[transactional]
-		pub fn create_subscription(origin: OriginFor<T>, subscription: SubscriptionOf<T>) -> DispatchResult {
+		pub fn create_subscription(
+			origin: OriginFor<T>,
+			currency_id: CurrencyId,
+			vesting_period: T::BlockNumber,
+			min_amount: Balance,
+			min_ratio: Ratio,
+			amount: Balance,
+			discount: Discount<T::BlockNumber>,
+		) -> DispatchResult {
 			T::CreatingOrigin::ensure_origin(origin)?;
 
 			let subscription_id = SubscriptionIndex::<T>::try_mutate(|id| -> Result<SubscriptionId, DispatchError> {
@@ -171,6 +181,19 @@ pub mod module {
 				*id = id.checked_add(One::one()).ok_or(ArithmeticError::Overflow)?;
 				Ok(current_id)
 			})?;
+			let subscription: SubscriptionOf<T> = Subscription {
+				currency_id,
+				vesting_period,
+				min_amount,
+				min_ratio,
+				amount,
+				discount,
+				state: SubscriptionState {
+					total_sold: Zero::zero(),
+					last_sold_at: T::BlockNumberProvider::current_block_number(),
+					last_discount: Zero::zero(),
+				},
+			};
 			Subscriptions::<T>::insert(subscription_id, subscription);
 
 			Self::deposit_event(Event::<T>::SubscriptionCreated {
@@ -189,7 +212,7 @@ pub mod module {
 			min_amount: Option<Balance>,
 			min_ratio: Option<Ratio>,
 			amount: Option<Balance>,
-			discount: Option<Discount>,
+			discount: Option<Discount<T::BlockNumber>>,
 		) -> DispatchResult {
 			T::CreatingOrigin::ensure_origin(origin)?;
 
@@ -306,18 +329,19 @@ impl<T: Config> Pallet<T> {
 
 		// discount
 
-		// idle_block = now - last_sold_at
-		let idle_blocks = now
-			.checked_sub(&subscription.state.last_sold_at)
+		// idle_intervals = (now - last_sold_at) / interval
+		let idle_intervals = now
+			.saturating_sub(subscription.state.last_sold_at)
+			.checked_div(&subscription.discount.interval)
 			.map(|n| {
 				let n_u64 = UniqueSaturatedInto::<u64>::unique_saturated_into(n);
 				DiscountRate::checked_from_integer(n_u64 as i128).expect("Block number can't overflow; qed")
 			})
 			.ok_or(ArithmeticError::Underflow)?;
-		// discount_inc = inc_on_idle * idle_blocks
+		// discount_inc = inc_on_idle * idle_intervals
 		let discount_inc = discount
 			.inc_on_idle
-			.checked_mul(&idle_blocks)
+			.checked_mul(&idle_intervals)
 			.ok_or(ArithmeticError::Overflow)?;
 		// discount_dec = dec_per_unit * total_sold
 		let discount_dec = {
