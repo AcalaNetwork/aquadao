@@ -212,6 +212,79 @@ fn subscribe_works() {
 }
 
 #[test]
+fn no_discount_increase_on_subscribe_within_interval() {
+	ExtBuilder::default()
+		.balances(vec![(
+			AccountId::from(ALICE),
+			AUSD_CURRENCY,
+			2_000_000 * dollar(AUSD_CURRENCY),
+		)])
+		.build()
+		.execute_with(|| {
+			System::set_block_number(1);
+
+			assert_ok!(AquaDao::create_subscription(
+				RawOrigin::Root.into(),
+				AUSD_CURRENCY,
+				1_000,
+				dollar(ADAO_CURRENCY) * 10,
+				Ratio::saturating_from_rational(1, 10),
+				dollar(CurrencyId::Token(ADAO)) * UNITS,
+				Discount {
+					max: DiscountRate::saturating_from_rational(1, 2),
+					interval: 1_000,
+					inc_on_idle: DiscountRate::saturating_from_rational(1, 2),
+					dec_per_unit: DiscountRate::saturating_from_rational(20, UNITS * 100),
+				},
+			));
+
+			let payment_amount = dollar(AUSD_CURRENCY) * 100;
+			assert_ok!(AquaDao::subscribe(
+				RawOrigin::Signed(ALICE).into(),
+				0,
+				payment_amount,
+				0
+			));
+			System::assert_last_event(Event::AquaDao(crate::Event::Subscribed {
+				who: ALICE,
+				subscription_id: 0,
+				payment_amount,
+				subscription_amount: 99_995_000_000_000,
+			}));
+
+			// no discount on new subscription within interval
+			MockBlockNumberProvider::set_block_number(998);
+			assert_ok!(AquaDao::subscribe(
+				RawOrigin::Signed(ALICE).into(),
+				0,
+				payment_amount,
+				0
+			));
+			System::assert_last_event(Event::AquaDao(crate::Event::Subscribed {
+				who: ALICE,
+				subscription_id: 0,
+				payment_amount,
+				subscription_amount: 99_995_000_000_000,
+			}));
+
+			// discount increases
+			MockBlockNumberProvider::set_block_number(2000);
+			assert_ok!(AquaDao::subscribe(
+				RawOrigin::Signed(ALICE).into(),
+				0,
+				payment_amount,
+				0
+			));
+			System::assert_last_event(Event::AquaDao(crate::Event::Subscribed {
+				who: ALICE,
+				subscription_id: 0,
+				payment_amount,
+				subscription_amount: 199_965_000_000_000,
+			}));
+		});
+}
+
+#[test]
 fn subscribe_with_below_min_ratio_works() {
 	ExtBuilder::default()
 		.balances(vec![(
