@@ -171,7 +171,7 @@ pub mod module {
 			vesting_period: T::BlockNumber,
 			min_amount: Balance,
 			min_ratio: Ratio,
-			amount: Balance,
+			#[pallet::compact] amount: Balance,
 			discount: Discount<T::BlockNumber>,
 		) -> DispatchResult {
 			T::CreatingOrigin::ensure_origin(origin)?;
