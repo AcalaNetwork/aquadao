@@ -169,7 +169,7 @@ pub mod module {
 			origin: OriginFor<T>,
 			currency_id: CurrencyId,
 			vesting_period: T::BlockNumber,
-			min_amount: Balance,
+			#[pallet::compact] min_amount: Balance,
 			min_ratio: Ratio,
 			#[pallet::compact] amount: Balance,
 			discount: Discount<T::BlockNumber>,
