@@ -183,7 +183,7 @@ pub mod module {
 			0
 		}
 
-		// ensure `T::RebalancePeriod` is not zero
+		// Ensure `T::RebalancePeriod` is not zero
 		#[cfg(feature = "std")]
 		fn integrity_test() {
 			assert!(!T::RebalancePeriod::get().is_zero());
@@ -284,7 +284,7 @@ impl<T: Config> Pallet<T> {
 			Self::target_allocations()
 				.into_iter()
 				.for_each(|(currency_id, allocation)| {
-					// checked that total vaule is not zero above, qed.
+					// Checked that total vaule is not zero above, qed.
 					let percent = FixedU128::saturating_from_rational(allocation.value, target_total);
 					let min = FixedU128::saturating_from_rational(
 						allocation.value.saturating_sub(allocation.range),
