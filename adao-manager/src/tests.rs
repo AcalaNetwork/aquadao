@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use super::*;
-use mock::{Event, ACA, ADAO, AUSD, *};
+use mock::{Event, ACA, AUSD, *};
 
 use frame_support::{assert_noop, assert_ok, error::BadOrigin};
 use orml_traits::MultiCurrencyExtended;
@@ -385,9 +385,6 @@ fn rebalance_ausd_adao_works() {
 		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
 			AUSD, &DAO, 1_000_000
 		));
-		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
-			ADAO, &DAO, 1_000_000
-		));
 
 		let alloc = Allocation { value: 100, range: 10 };
 		assert_ok!(AquaDAO::set_target_allocations(
@@ -435,7 +432,42 @@ fn rebalance_ausd_adao_works() {
 
 #[test]
 fn alternates_strategies_correctly() {
-	ExtBuilder::default().build().execute_with(|| {});
+	ExtBuilder::default().build().execute_with(|| {
+		// Set Balances for DaoAccount
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			AUSD, &DAO, 1_000_000
+		));
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			ACA, &DAO, 1_000_000
+		));
+		set_test_strategies();
+
+		let alloc = Allocation { value: 100, range: 10 };
+		assert_ok!(AquaDAO::set_target_allocations(
+			Origin::signed(ALICE),
+			vec![
+				(AUSD, Some(alloc)),
+				(ACA, Some(alloc)),
+				(ACA_AUSD_LP, Some(alloc)),
+				(ADAO_AUSD_LP, Some(alloc))
+			]
+		));
+		run_to_block(2);
+
+		// Nothing happens as offset is 1 so only will rebalance on odd blocks
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 1_000_000);
+		assert_eq!(Currencies::free_balance(ACA, &DAO), 1_000_000);
+		run_to_block(3);
+
+		// rebalance with ausd and other token (ACA in this case)
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 875_000);
+		assert_eq!(Currencies::free_balance(ACA, &DAO), 875_000);
+		run_to_block(5);
+
+		// rebalance with ausd and adao
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 750_000);
+		assert_eq!(Currencies::free_balance(ACA, &DAO), 875_000);
+	});
 }
 
 #[test]

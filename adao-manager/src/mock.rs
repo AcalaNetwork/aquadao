@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use super::*;
-use acala_primitives::TradingPair;
+use acala_primitives::DexShare;
 use frame_support::{
 	construct_runtime, ord_parameter_types, parameter_types,
 	traits::{ConstU32, ConstU64, Everything, Nothing},
@@ -185,7 +185,7 @@ impl module::Config for Runtime {
 	type Event = Event;
 	type StableCurrencyId = GetStableCurrency;
 	type RebalancePeriod = ConstU64<2>;
-	type RebalanceOffset = ConstU64<0>;
+	type RebalanceOffset = ConstU64<1>;
 	type DaoAccount = GetDaoAccount;
 	type PalletId = AquaDaoPalletId;
 	type DEX = DexModule;

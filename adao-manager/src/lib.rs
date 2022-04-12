@@ -15,8 +15,8 @@ use orml_traits::MultiCurrency;
 use acala_primitives::{
 	Amount, Balance,
 	CurrencyId::{self, Token},
-	DexShare,
 	TokenSymbol::{self, *},
+	TradingPair,
 };
 use module_support::{DEXManager, PriceProvider};
 
@@ -121,6 +121,7 @@ pub mod module {
 		ZeroTargetAllocation,
 		TargetAllocationNotFound,
 		NoPrice,
+		InvalidTradingPair,
 	}
 
 	#[pallet::event]
@@ -136,6 +137,9 @@ pub mod module {
 		TargetAllocationAdjusted {
 			currency_id: CurrencyId,
 			adjustment: AllocationAdjustment,
+		},
+		StrategiesSet {
+			strategies: Vec<Strategy>,
 		},
 	}
 
@@ -162,7 +166,7 @@ pub mod module {
 			// can't be zero in runtime config so it's safe.
 			if (now % T::RebalancePeriod::get()) == T::RebalanceOffset::get() {
 				let strategies = Strategies::<T>::get();
-				let index: u32 = now.unique_saturated_into();
+				let index: u32 = (now / T::RebalancePeriod::get()).unique_saturated_into();
 				// Checked remainder to not panic
 				let u32_index = index
 					.checked_rem(strategies.len().saturated_into::<u32>())
@@ -256,10 +260,12 @@ pub mod module {
 		}
 
 		#[pallet::weight(0)]
+		#[transactional]
 		pub fn set_strategies(origin: OriginFor<T>, strategies: Vec<Strategy>) -> DispatchResult {
 			T::UpdateOrigin::ensure_origin(origin)?;
 
-			Strategies::<T>::set(strategies);
+			Strategies::<T>::set(strategies.clone());
+			Self::deposit_event(Event::<T>::StrategiesSet { strategies });
 			Ok(())
 		}
 	}
@@ -479,7 +485,12 @@ impl<T: Config> Pallet<T> {
 
 	#[require_transactional]
 	fn rebalance_ausd_adao(strategy: &Strategy, diff: BTreeMap<CurrencyId, AllocationDiff>) -> DispatchResult {
-		let lp = CurrencyId::DexShare(DexShare::Token(AUSD), DexShare::Token(ADAO));
+		let trading_pair = TradingPair::from_currency_ids(
+			CurrencyId::Token(TokenSymbol::AUSD),
+			CurrencyId::Token(TokenSymbol::ADAO),
+		)
+		.ok_or(Error::<T>::InvalidTradingPair)?;
+		let lp = trading_pair.dex_share_currency_id();
 		let lp_diff = match diff.get(&lp) {
 			Some(d) => d,
 			None => return Ok(()),
@@ -521,7 +532,10 @@ impl<T: Config> Pallet<T> {
 		other: TokenSymbol,
 		diff: BTreeMap<CurrencyId, AllocationDiff>,
 	) -> DispatchResult {
-		let lp = CurrencyId::DexShare(DexShare::Token(other), DexShare::Token(AUSD));
+		let trading_pair =
+			TradingPair::from_currency_ids(CurrencyId::Token(TokenSymbol::AUSD), CurrencyId::Token(other))
+				.ok_or(Error::<T>::InvalidTradingPair)?;
+		let lp = trading_pair.dex_share_currency_id();
 		let lp_diff = match diff.get(&lp) {
 			Some(d) => d,
 			None => return Ok(()),
