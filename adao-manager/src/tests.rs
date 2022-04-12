@@ -3,13 +3,39 @@
 #![cfg(test)]
 
 use super::*;
-use mock::{Event, ACA, AUSD, *};
+use mock::{Event, ACA, ADAO, AUSD, *};
 
 use frame_support::{assert_noop, assert_ok, error::BadOrigin};
+use orml_traits::MultiCurrencyExtended;
 
 fn run_to_block(n: BlockNumber) {
-	System::set_block_number(n);
-	AquaDAO::on_initialize(n);
+	let mut block = System::block_number();
+	while block < n {
+		System::set_block_number(block + 1);
+		AquaDAO::on_initialize(block + 1);
+		block += 1;
+	}
+}
+
+// Sets AUSD/ADAO and AUSD/ACA for liquidity provision
+fn set_test_strategies() {
+	// Set strategies
+	let strategy = Strategy {
+		kind: StrategyKind::LiquidityProvisionAusdAdao,
+		percent_per_trade: FixedU128::saturating_from_rational(1, 2),
+		max_amount_per_trade: 1_000_000,
+		min_amount_per_trade: -1_000_000,
+	};
+	let strategy2 = Strategy {
+		kind: StrategyKind::LiquidityProvisionAusdOther(TokenSymbol::ACA),
+		percent_per_trade: FixedU128::saturating_from_rational(1, 2),
+		max_amount_per_trade: 1_000_000,
+		min_amount_per_trade: -1_000_000,
+	};
+	assert_ok!(AquaDAO::set_strategies(
+		Origin::signed(ALICE),
+		vec![strategy, strategy2]
+	));
 }
 
 #[test]
@@ -35,6 +61,14 @@ fn set_target_allocations_works() {
 			currency_id: AUSD,
 			allocation: alloc,
 		}));
+		assert_eq!(
+			TargetAllocationPercents::<Runtime>::get().get(&AUSD).unwrap(),
+			&AllocationPercent {
+				value: FixedU128::saturating_from_rational(5, 10),
+				min: FixedU128::saturating_from_rational(9, 20),
+				max: FixedU128::saturating_from_rational(11, 20)
+			}
+		);
 
 		let alloc2 = Allocation { value: 50, range: 5 };
 		// Will overwrite existing allocation
@@ -138,14 +172,300 @@ fn adjust_target_allocations_works() {
 }
 
 #[test]
-fn on_initialize_max_greater_than_one() {
+fn set_strategies_works() {
 	ExtBuilder::default().build().execute_with(|| {
+		assert_noop!(AquaDAO::set_strategies(Origin::signed(BOB), vec![]), BadOrigin);
+		assert_eq!(Strategies::<Runtime>::get(), vec![]);
+
+		let strategy = Strategy {
+			kind: StrategyKind::LiquidityProvisionAusdAdao,
+			percent_per_trade: FixedU128::default(),
+			max_amount_per_trade: 0,
+			min_amount_per_trade: 0,
+		};
+		assert_ok!(AquaDAO::set_strategies(Origin::signed(ALICE), vec![strategy]));
+	});
+}
+
+#[test]
+fn test_current_allocations() {
+	ExtBuilder::default().build().execute_with(|| {
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			AUSD, &DAO, 1_000_000
+		));
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			ACA, &DAO, 1_000_000
+		));
+
 		let alloc = Allocation { value: 100, range: 10 };
 		assert_ok!(AquaDAO::set_target_allocations(
 			Origin::signed(ALICE),
-			vec![(ACA, Some(alloc))]
+			vec![(ACA, Some(alloc)), (AUSD, Some(alloc))]
 		));
 
-		run_to_block(2);
+		let curr_allocations = AquaDAO::current_allocations().unwrap();
+		assert_eq!(curr_allocations.1, 2_000_000);
+		assert_eq!(
+			curr_allocations.0.get(&ACA).unwrap(),
+			&CurrentAllocation {
+				amount: 1_000_000,
+				value: 1_000_000,
+				percent: FixedU128::saturating_from_rational(1, 2)
+			}
+		);
+	});
+}
+
+#[test]
+fn test_allocation_diff() {
+	ExtBuilder::default().build().execute_with(|| {
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			AUSD, &DAO, 1_000_000
+		));
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			ACA, &DAO, 1_000_000
+		));
+
+		let alloc = Allocation { value: 100, range: 10 };
+		assert_ok!(AquaDAO::set_target_allocations(
+			Origin::signed(ALICE),
+			vec![(ACA, Some(alloc)), (AUSD, Some(alloc))]
+		));
+
+		// There is no difference as allocations are the same
+		let diff = AquaDAO::allocation_diff().unwrap();
+		assert_eq!(
+			diff.get(&ACA).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(1, 2),
+				target: FixedU128::saturating_from_rational(1, 2),
+				diff: FixedI128::default(),
+				range_diff: FixedI128::default(),
+				diff_amount: 0
+			}
+		);
+
+		// Adjust allocation to make difference in target and current allocation amounts
+		let adjustment = AllocationAdjustment { value: -50, range: -5 };
+		assert_ok!(AquaDAO::adjust_target_allocations(
+			Origin::signed(ALICE),
+			vec![(ACA, adjustment)]
+		));
+
+		// Now there is a difference in values
+		let diff = AquaDAO::allocation_diff().unwrap();
+		// slight loss of percision due to fixed integer, should not be major issue as system is always
+		// rebalancing, can only be off by 1
+		assert_eq!(
+			diff.get(&ACA).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(1, 2),
+				target: FixedU128::saturating_from_rational(1, 3),
+				diff: FixedI128::from_inner(166666666666666667),
+				range_diff: FixedI128::from_inner(133333333333333334),
+				diff_amount: 333_334
+			}
+		);
+		assert_eq!(
+			diff.get(&AUSD).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(1, 2),
+				target: FixedU128::saturating_from_rational(2, 3),
+				diff: FixedI128::from_inner(-166666666666666666),
+				range_diff: FixedI128::saturating_from_rational(-1, 10),
+				diff_amount: -333_333
+			}
+		);
+	});
+}
+
+#[test]
+fn on_initialize_no_allocations() {
+	ExtBuilder::default().build().execute_with(|| {
+		// Set Balances for DaoAccount
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			AUSD, &DAO, 1_000_000
+		));
+		assert_ok!(DexModule::add_liquidity(
+			Origin::signed(ALICE),
+			AUSD,
+			ACA,
+			10000,
+			10000,
+			0,
+			false
+		));
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 1_000_000);
+
+		// Nothing happens when no allocations are set and no strategies are set
+		run_to_block(4);
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 1_000_000);
+
+		set_test_strategies();
+		// Check strategies are set
+		assert_eq!(Strategies::<Runtime>::get().len(), 2);
+
+		// Nothing happens when no allocations are set
+		run_to_block(8);
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 1_000_000);
+	});
+}
+
+#[test]
+fn rebalance_ausd_other_works() {
+	ExtBuilder::default().build().execute_with(|| {
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			AUSD, &DAO, 1_000_000
+		));
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			ACA, &DAO, 1_000_000
+		));
+
+		let alloc = Allocation { value: 100, range: 10 };
+		let alloc2 = Allocation { value: 50, range: 5 };
+		assert_ok!(AquaDAO::set_target_allocations(
+			Origin::signed(ALICE),
+			vec![(AUSD, Some(alloc)), (ACA, Some(alloc2)), (ACA_AUSD_LP, Some(alloc))]
+		));
+
+		let diff = AquaDAO::allocation_diff().unwrap();
+		let strategy = Strategy {
+			kind: StrategyKind::LiquidityProvisionAusdOther(TokenSymbol::ACA),
+			percent_per_trade: FixedU128::saturating_from_rational(1, 2),
+			max_amount_per_trade: 1_000_000,
+			min_amount_per_trade: -1_000_000,
+		};
+
+		assert_eq!(
+			diff.get(&AUSD).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(1, 2),
+				target: FixedU128::saturating_from_rational(2, 5),
+				diff: FixedI128::saturating_from_rational(1, 10),
+				range_diff: FixedI128::saturating_from_rational(6, 100),
+				diff_amount: 200_000
+			}
+		);
+		assert_ok!(AquaDAO::rebalance(&strategy, diff.clone()));
+
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 900_000);
+		let diff = AquaDAO::allocation_diff().unwrap();
+		assert_eq!(
+			diff.get(&AUSD).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(9, 20),
+				target: FixedU128::saturating_from_rational(2, 5),
+				diff: FixedI128::saturating_from_rational(1, 20),
+				range_diff: FixedI128::saturating_from_rational(1, 100),
+				diff_amount: 100_000
+			}
+		);
+
+		assert_ok!(AquaDAO::rebalance(&strategy, diff.clone()));
+
+		// will recursively rebalance 50%
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 850_000);
+		let diff = AquaDAO::allocation_diff().unwrap();
+		assert_eq!(
+			diff.get(&AUSD).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(17, 40),
+				target: FixedU128::saturating_from_rational(2, 5),
+				diff: FixedI128::saturating_from_rational(1, 40),
+				range_diff: FixedI128::saturating_from_rational(0, 1),
+				diff_amount: 50_000
+			}
+		);
+	});
+}
+
+#[test]
+fn rebalance_ausd_adao_works() {
+	ExtBuilder::default().build().execute_with(|| {
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			AUSD, &DAO, 1_000_000
+		));
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			ADAO, &DAO, 1_000_000
+		));
+
+		let alloc = Allocation { value: 100, range: 10 };
+		assert_ok!(AquaDAO::set_target_allocations(
+			Origin::signed(ALICE),
+			vec![(AUSD, Some(alloc)), (ADAO_AUSD_LP, Some(alloc))]
+		));
+
+		let diff = AquaDAO::allocation_diff().unwrap();
+		let strategy = Strategy {
+			kind: StrategyKind::LiquidityProvisionAusdAdao,
+			percent_per_trade: FixedU128::saturating_from_rational(1, 2),
+			max_amount_per_trade: 1_000_000,
+			min_amount_per_trade: -1_000_000,
+		};
+
+		assert_eq!(
+			diff.get(&AUSD).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(1, 1),
+				target: FixedU128::saturating_from_rational(1, 2),
+				diff: FixedI128::saturating_from_rational(1, 2),
+				range_diff: FixedI128::saturating_from_rational(45, 100),
+				diff_amount: 500_000
+			}
+		);
+		assert_ok!(AquaDAO::rebalance(&strategy, diff.clone()));
+
+		let diff = AquaDAO::allocation_diff().unwrap();
+		assert_eq!(
+			diff.get(&AUSD).unwrap(),
+			&AllocationDiff {
+				current: FixedU128::saturating_from_rational(7, 9),
+				target: FixedU128::saturating_from_rational(1, 2),
+				diff: FixedI128::saturating_from_rational(25, 90),
+				range_diff: FixedI128::saturating_from_rational(41, 180),
+				diff_amount: 312_500
+			}
+		);
+
+		assert_ok!(AquaDAO::rebalance(&strategy, diff.clone()));
+		// LP token deposited into dao account
+		assert_eq!(Currencies::free_balance(ADAO_AUSD_LP, &DAO), 406_250);
+	});
+}
+
+#[test]
+fn alternates_strategies_correctly() {
+	ExtBuilder::default().build().execute_with(|| {});
+}
+
+#[test]
+fn on_initialize_max_greater_than_one() {
+	ExtBuilder::default().build().execute_with(|| {
+		// Set Balances for DaoAccount
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			AUSD, &DAO, 1_000_000
+		));
+		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
+			ACA, &DAO, 1_000_000
+		));
+		assert_ok!(DexModule::add_liquidity(
+			Origin::signed(ALICE),
+			AUSD,
+			ACA,
+			10000,
+			10000,
+			0,
+			false
+		));
+		set_test_strategies();
+
+		let alloc = Allocation { value: 100, range: 10 };
+		assert_ok!(AquaDAO::set_target_allocations(
+			Origin::signed(ALICE),
+			vec![(ACA, Some(alloc)), (AUSD, Some(alloc))]
+		));
+
+		run_to_block(4);
+		assert_eq!(Currencies::free_balance(AUSD, &DAO), 1_000_000);
 	});
 }

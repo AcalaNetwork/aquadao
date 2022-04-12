@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{log, pallet_prelude::*, traits::EnsureOrigin, transactional, PalletId};
+use frame_support::{log, pallet_prelude::*, require_transactional, traits::EnsureOrigin, transactional, PalletId};
 use frame_system::pallet_prelude::*;
 use sp_runtime::{
 	traits::{AccountIdConversion, SaturatedConversion, Saturating, UniqueSaturatedInto, Zero},
@@ -51,6 +51,13 @@ pub struct AllocationDiff {
 	diff: FixedI128,
 	range_diff: FixedI128,
 	diff_amount: Amount,
+}
+
+#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, Default, RuntimeDebug, TypeInfo)]
+struct CurrentAllocation {
+	amount: Balance,
+	value: Balance,
+	percent: FixedU128,
 }
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
@@ -154,13 +161,14 @@ pub mod module {
 			// Checked arithmetic but not supported by `BlockNumber`. `T::RebalancePeriod`
 			// can't be zero in runtime config so it's safe.
 			if (now % T::RebalancePeriod::get()) == T::RebalanceOffset::get() {
-				let index = now / T::RebalancePeriod::get() % Self::strategies().len().saturated_into();
-				Strategies::<T>::mutate(|strategies| {
-					let u32_index: u32 = index.unique_saturated_into();
-					let strategy = match strategies.get(u32_index as usize) {
-						Some(s) => s,
-						None => return,
-					};
+				let strategies = Strategies::<T>::get();
+				let index: u32 = now.unique_saturated_into();
+				// Checked remainder to not panic
+				let u32_index = index
+					.checked_rem(strategies.len().saturated_into::<u32>())
+					.unwrap_or_default();
+
+				if let Some(strategy) = strategies.get(u32_index as usize) {
 					match Self::allocation_diff() {
 						Ok(diff) => {
 							if let Err(e) = Self::rebalance(strategy, diff) {
@@ -169,10 +177,16 @@ pub mod module {
 						}
 						Err(e) => log::error!(target: "adao-manager", "Getting allocation diff failed: {:?}", e),
 					}
-				});
+				}
 			}
 
 			0
+		}
+
+		// ensure `T::RebalancePeriod` is not zero
+		#[cfg(feature = "std")]
+		fn integrity_test() {
+			assert!(!T::RebalancePeriod::get().is_zero());
 		}
 	}
 
@@ -240,13 +254,15 @@ pub mod module {
 
 			Self::update_target_allocation_percents()
 		}
-	}
-}
 
-struct CurrentAllocation {
-	amount: Balance,
-	value: Balance,
-	percent: FixedU128,
+		#[pallet::weight(0)]
+		pub fn set_strategies(origin: OriginFor<T>, strategies: Vec<Strategy>) -> DispatchResult {
+			T::UpdateOrigin::ensure_origin(origin)?;
+
+			Strategies::<T>::set(strategies);
+			Ok(())
+		}
+	}
 }
 
 impl<T: Config> Pallet<T> {
@@ -268,6 +284,7 @@ impl<T: Config> Pallet<T> {
 			Self::target_allocations()
 				.into_iter()
 				.for_each(|(currency_id, allocation)| {
+					// checked that total vaule is not zero above, qed.
 					let percent = FixedU128::saturating_from_rational(allocation.value, target_total);
 					let min = FixedU128::saturating_from_rational(
 						allocation.value.saturating_sub(allocation.range),
@@ -445,6 +462,7 @@ impl<T: Config> Pallet<T> {
 		}
 
 		allocations.iter_mut().for_each(|(_, allocation)| {
+			// Checked that total vaule is not zero above, qed.
 			allocation.percent = FixedU128::saturating_from_rational(allocation.value, total_value);
 		});
 
@@ -459,8 +477,9 @@ impl<T: Config> Pallet<T> {
 		}
 	}
 
+	#[require_transactional]
 	fn rebalance_ausd_adao(strategy: &Strategy, diff: BTreeMap<CurrencyId, AllocationDiff>) -> DispatchResult {
-		let lp = CurrencyId::DexShare(DexShare::Token(ADAO), DexShare::Token(AUSD));
+		let lp = CurrencyId::DexShare(DexShare::Token(AUSD), DexShare::Token(ADAO));
 		let lp_diff = match diff.get(&lp) {
 			Some(d) => d,
 			None => return Ok(()),
@@ -496,6 +515,7 @@ impl<T: Config> Pallet<T> {
 		T::Currency::transfer(lp, &pallet_account, &T::DaoAccount::get(), lp_share)
 	}
 
+	#[require_transactional]
 	fn rebalance_ausd_other(
 		strategy: &Strategy,
 		other: TokenSymbol,

@@ -27,6 +27,11 @@ pub const BOB: AccountId = AccountId32::new([1; 32]);
 pub const DAO: AccountId = AccountId32::new([2; 32]);
 pub const AUSD: CurrencyId = CurrencyId::Token(TokenSymbol::AUSD);
 pub const ACA: CurrencyId = CurrencyId::Token(TokenSymbol::ACA);
+pub const ADAO: CurrencyId = CurrencyId::Token(TokenSymbol::ADAO);
+pub const ACA_AUSD_LP: CurrencyId =
+	CurrencyId::DexShare(DexShare::Token(TokenSymbol::ACA), DexShare::Token(TokenSymbol::AUSD));
+pub const ADAO_AUSD_LP: CurrencyId =
+	CurrencyId::DexShare(DexShare::Token(TokenSymbol::AUSD), DexShare::Token(TokenSymbol::ADAO));
 
 impl frame_system::Config for Runtime {
 	type Origin = Origin;
@@ -113,6 +118,7 @@ parameter_types! {
 	pub const TradingPathLimit: u32 = 4;
 	pub EnabledTradingPairs: Vec<TradingPair> = vec![
 		TradingPair::from_currency_ids(ACA, AUSD).unwrap(),
+		TradingPair::from_currency_ids(ADAO, AUSD).unwrap(),
 	];
 	pub const ExtendedProvisioningBlocks: BlockNumber = 0;
 }
@@ -137,6 +143,10 @@ impl module_dex::Config for Runtime {
 
 thread_local! {
 	static ACA_PRICE: RefCell<Option<Price>> = RefCell::new(Some(Price::one()));
+	static AUSD_PRICE: RefCell<Option<Price>> = RefCell::new(Some(Price::one()));
+	static ADAO_PRICE: RefCell<Option<Price>> = RefCell::new(Some(Price::one()));
+	static ACA_AUSD_PRICE: RefCell<Option<Price>> = RefCell::new(Some(Price::one()));
+	static ADAO_AUSD_PRICE: RefCell<Option<Price>> = RefCell::new(Some(Price::one()));
 }
 
 pub struct MockPriceSource;
@@ -144,6 +154,10 @@ impl MockPriceSource {
 	pub fn set_price(currency_id: CurrencyId, price: Option<Price>) {
 		match currency_id {
 			ACA => ACA_PRICE.with(|v| *v.borrow_mut() = price),
+			AUSD => AUSD_PRICE.with(|v| *v.borrow_mut() = price),
+			ADAO => ADAO_PRICE.with(|v| *v.borrow_mut() = price),
+			ACA_AUSD_LP => ACA_AUSD_PRICE.with(|v| *v.borrow_mut() = price),
+			ADAO_AUSD_LP => ADAO_AUSD_PRICE.with(|v| *v.borrow_mut() = price),
 			_ => {}
 		}
 	}
@@ -152,6 +166,10 @@ impl PriceProvider<CurrencyId> for MockPriceSource {
 	fn get_price(currency_id: CurrencyId) -> Option<Price> {
 		match currency_id {
 			ACA => ACA_PRICE.with(|v| *v.borrow()),
+			AUSD => AUSD_PRICE.with(|v| *v.borrow()),
+			ADAO => ADAO_PRICE.with(|v| *v.borrow()),
+			ACA_AUSD_LP => ACA_AUSD_PRICE.with(|v| *v.borrow()),
+			ADAO_AUSD_LP => ADAO_AUSD_PRICE.with(|v| *v.borrow()),
 			_ => None,
 		}
 	}
@@ -166,8 +184,8 @@ parameter_types! {
 impl module::Config for Runtime {
 	type Event = Event;
 	type StableCurrencyId = GetStableCurrency;
-	type RebalancePeriod = ConstU64<20>;
-	type RebalanceOffset = ConstU64<10>;
+	type RebalancePeriod = ConstU64<2>;
+	type RebalanceOffset = ConstU64<0>;
 	type DaoAccount = GetDaoAccount;
 	type PalletId = AquaDaoPalletId;
 	type DEX = DexModule;
@@ -194,19 +212,43 @@ construct_runtime!(
 		}
 );
 
-pub struct ExtBuilder;
+pub struct ExtBuilder {
+	balances: Vec<(AccountId, CurrencyId, Balance)>,
+}
 
 impl Default for ExtBuilder {
 	fn default() -> Self {
-		Self {}
+		Self {
+			balances: vec![(ALICE, AUSD, 1_000_000)],
+		}
 	}
 }
 
 impl ExtBuilder {
 	pub fn build(self) -> sp_io::TestExternalities {
-		let t = frame_system::GenesisConfig::default()
+		let mut t = frame_system::GenesisConfig::default()
 			.build_storage::<Runtime>()
 			.unwrap();
+
+		pallet_balances::GenesisConfig::<Runtime> {
+			balances: vec![(ALICE, 1_000_000)],
+		}
+		.assimilate_storage(&mut t)
+		.unwrap();
+
+		orml_tokens::GenesisConfig::<Runtime> {
+			balances: self.balances,
+		}
+		.assimilate_storage(&mut t)
+		.unwrap();
+
+		module_dex::GenesisConfig::<Runtime> {
+			initial_listing_trading_pairs: vec![],
+			initial_enabled_trading_pairs: EnabledTradingPairs::get(),
+			initial_added_liquidity_pools: vec![],
+		}
+		.assimilate_storage(&mut t)
+		.unwrap();
 
 		let mut ext = sp_io::TestExternalities::new(t);
 		ext.execute_with(|| System::set_block_number(1));
