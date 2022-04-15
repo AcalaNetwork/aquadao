@@ -28,6 +28,7 @@ pub const DAO: AccountId = AccountId32::new([2; 32]);
 pub const AUSD: CurrencyId = CurrencyId::Token(TokenSymbol::AUSD);
 pub const ACA: CurrencyId = CurrencyId::Token(TokenSymbol::ACA);
 pub const ADAO: CurrencyId = CurrencyId::Token(TokenSymbol::ADAO);
+pub const DOT: CurrencyId = CurrencyId::Token(TokenSymbol::DOT);
 pub const ACA_AUSD_LP: CurrencyId =
 	CurrencyId::DexShare(DexShare::Token(TokenSymbol::ACA), DexShare::Token(TokenSymbol::AUSD));
 pub const ADAO_AUSD_LP: CurrencyId =

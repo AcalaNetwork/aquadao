@@ -3,9 +3,10 @@
 #![cfg(test)]
 
 use super::*;
-use mock::{Event, ACA, AUSD, *};
+use mock::{Event, ACA, AUSD, DOT, *};
 
 use frame_support::{assert_noop, assert_ok, error::BadOrigin};
+use module_support::dex::DEXManager;
 use orml_traits::MultiCurrencyExtended;
 
 fn run_to_block(n: BlockNumber) {
@@ -471,6 +472,84 @@ fn alternates_strategies_correctly() {
 }
 
 #[test]
+fn allocate_with_no_funds() {
+	ExtBuilder::default().build().execute_with(|| {
+		set_test_strategies();
+
+		let alloc = Allocation { value: 100, range: 10 };
+		assert_ok!(AquaDAO::set_target_allocations(
+			Origin::signed(ALICE),
+			vec![
+				(AUSD, Some(alloc)),
+				(ACA, Some(alloc)),
+				(ACA_AUSD_LP, Some(alloc)),
+				(ADAO_AUSD_LP, Some(alloc))
+			]
+		));
+		System::reset_events();
+
+		run_to_block(5);
+
+		// rebalance will error out and no liquidity is added to pools
+		assert_eq!(System::events(), vec![]);
+		assert_eq!(
+			DexModule::get_liquidity_pool(
+				CurrencyId::Token(TokenSymbol::ADAO),
+				CurrencyId::Token(TokenSymbol::AUSD)
+			),
+			(0, 0)
+		);
+		assert_eq!(
+			DexModule::get_liquidity_pool(
+				CurrencyId::Token(TokenSymbol::ACA),
+				CurrencyId::Token(TokenSymbol::AUSD)
+			),
+			(0, 0)
+		);
+	});
+}
+
+#[test]
+fn zero_amount_allocations_test() {
+	ExtBuilder::default().build().execute_with(|| {
+		set_test_strategies();
+
+		let alloc = Allocation { value: 0, range: 10 };
+		let alloc2 = Allocation { value: 1, range: 10 };
+		assert_ok!(AquaDAO::set_target_allocations(
+			Origin::signed(ALICE),
+			vec![
+				(AUSD, Some(alloc)),
+				(ACA, Some(alloc)),
+				(DOT, Some(alloc2)),
+				(ACA_AUSD_LP, Some(alloc)),
+				(ADAO_AUSD_LP, Some(alloc))
+			]
+		));
+
+		System::reset_events();
+		run_to_block(5);
+
+		// rebalance will error out and no liquidity is added to pools
+		assert_eq!(System::events(), vec![]);
+		assert_eq!(
+			DexModule::get_liquidity_pool(
+				CurrencyId::Token(TokenSymbol::ADAO),
+				CurrencyId::Token(TokenSymbol::AUSD)
+			),
+			(0, 0)
+		);
+		assert_eq!(
+			DexModule::get_liquidity_pool(
+				CurrencyId::Token(TokenSymbol::ACA),
+				CurrencyId::Token(TokenSymbol::AUSD)
+			),
+			(0, 0)
+		)
+	});
+}
+
+#[test]
 fn on_initialize_max_greater_than_one() {
 	ExtBuilder::default().build().execute_with(|| {
 		// Set Balances for DaoAccount
@@ -480,24 +559,22 @@ fn on_initialize_max_greater_than_one() {
 		assert_ok!(<Currencies as MultiCurrencyExtended<AccountId>>::update_balance(
 			ACA, &DAO, 1_000_000
 		));
-		assert_ok!(DexModule::add_liquidity(
-			Origin::signed(ALICE),
-			AUSD,
-			ACA,
-			10000,
-			10000,
-			0,
-			false
-		));
 		set_test_strategies();
 
-		let alloc = Allocation { value: 100, range: 10 };
+		let alloc = Allocation { value: 100, range: 200 };
 		assert_ok!(AquaDAO::set_target_allocations(
 			Origin::signed(ALICE),
-			vec![(ACA, Some(alloc)), (AUSD, Some(alloc))]
+			vec![
+				(ACA, Some(alloc)),
+				(AUSD, Some(alloc)),
+				(ACA_AUSD_LP, Some(alloc)),
+				(ADAO_AUSD_LP, Some(alloc))
+			]
 		));
 
-		run_to_block(4);
+		// Nothing happens due to range being larger than value in allocation
+		run_to_block(5);
 		assert_eq!(Currencies::free_balance(AUSD, &DAO), 1_000_000);
+		assert_eq!(Currencies::free_balance(ACA, &DAO), 1_000_000);
 	});
 }

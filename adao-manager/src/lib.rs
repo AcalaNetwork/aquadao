@@ -168,11 +168,11 @@ pub mod module {
 				let strategies = Strategies::<T>::get();
 				let index: u32 = (now / T::RebalancePeriod::get()).unique_saturated_into();
 				// Checked remainder to not panic
-				let u32_index = index
+				let strategy_index = index
 					.checked_rem(strategies.len().saturated_into::<u32>())
 					.unwrap_or_default();
 
-				if let Some(strategy) = strategies.get(u32_index as usize) {
+				if let Some(strategy) = strategies.get(strategy_index as usize) {
 					match Self::allocation_diff() {
 						Ok(diff) => {
 							if let Err(e) = Self::rebalance(strategy, diff) {
