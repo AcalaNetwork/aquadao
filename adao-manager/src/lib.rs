@@ -18,23 +18,26 @@ use acala_primitives::{
 	TokenSymbol::{self, *},
 	TradingPair,
 };
-use module_support::{DEXManager, PriceProvider};
+use module_support::{DEXManager, PriceProvider, DEXPriceProvider};
 
 pub use module::*;
 
 mod mock;
 mod tests;
 
+mod weights;
+pub use weights::WeightInfo;
+
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, Default, RuntimeDebug, TypeInfo)]
 pub struct Allocation {
-	value: Balance,
-	range: Balance,
+	pub value: Balance,
+	pub range: Balance,
 }
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct AllocationAdjustment {
-	value: i128,
-	range: i128,
+	pub value: i128,
+	pub range: i128,
 }
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, Default, RuntimeDebug, TypeInfo)]
@@ -62,10 +65,10 @@ struct CurrentAllocation {
 
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct Strategy {
-	kind: StrategyKind,
-	percent_per_trade: FixedU128,
-	max_amount_per_trade: i128,
-	min_amount_per_trade: i128,
+	pub kind: StrategyKind,
+	pub percent_per_trade: FixedU128,
+	pub max_amount_per_trade: i128,
+	pub min_amount_per_trade: i128,
 }
 
 impl Strategy {
@@ -97,6 +100,10 @@ pub mod module {
 
 		type StableCurrencyId: Get<CurrencyId>;
 
+		/// Used for `ADAO` token price.
+		type AdaoPriceProvider: DEXPriceProvider<CurrencyId>;
+
+		/// Used for assets price except `ADAO`.
 		type AssetPriceProvider: PriceProvider<CurrencyId>;
 
 		type UpdateOrigin: EnsureOrigin<Self::Origin>;
@@ -114,6 +121,8 @@ pub mod module {
 
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
+
+		type WeightInfo: WeightInfo;
 	}
 
 	#[pallet::error]
@@ -178,13 +187,14 @@ pub mod module {
 							if let Err(e) = Self::rebalance(strategy, diff) {
 								log::error!(target: "adao-manager", "Rebalance failed: {:?}", e);
 							}
+							return <T as Config>::WeightInfo::on_initialize_with_rebalance();
 						}
 						Err(e) => log::error!(target: "adao-manager", "Getting allocation diff failed: {:?}", e),
 					}
 				}
 			}
 
-			0
+			<T as Config>::WeightInfo::on_initialize_without_rebalance()
 		}
 
 		// Ensure `T::RebalancePeriod` is not zero
@@ -196,7 +206,7 @@ pub mod module {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::set_target_allocations(targets.len().saturated_into()))]
 		#[transactional]
 		pub fn set_target_allocations(
 			origin: OriginFor<T>,
@@ -222,7 +232,7 @@ pub mod module {
 			Self::update_target_allocation_percents()
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::adjust_target_allocations(adjustments.len().saturated_into()))]
 		#[transactional]
 		pub fn adjust_target_allocations(
 			origin: OriginFor<T>,
@@ -259,7 +269,7 @@ pub mod module {
 			Self::update_target_allocation_percents()
 		}
 
-		#[pallet::weight(0)]
+		#[pallet::weight(<T as Config>::WeightInfo::set_strategies())]
 		#[transactional]
 		pub fn set_strategies(origin: OriginFor<T>, strategies: Vec<Strategy>) -> DispatchResult {
 			T::UpdateOrigin::ensure_origin(origin)?;
@@ -274,6 +284,16 @@ pub mod module {
 impl<T: Config> Pallet<T> {
 	fn account_id() -> T::AccountId {
 		T::PalletId::get().into_account()
+	}
+
+	fn price(currency_id: CurrencyId) -> Result<FixedU128, DispatchError> {
+		if currency_id == Token(ADAO) {
+			T::AdaoPriceProvider::get_relative_price(Token(ADAO), T::StableCurrencyId::get())
+				.ok_or(Error::<T>::NoPrice.into())
+		} else {
+			T::AssetPriceProvider::get_relative_price(currency_id, T::StableCurrencyId::get())
+				.ok_or(Error::<T>::NoPrice.into())
+		}
 	}
 
 	fn update_target_allocation_percents() -> DispatchResult {
@@ -322,8 +342,7 @@ impl<T: Config> Pallet<T> {
 
 		for (currency_id, target_percent) in target_allocation_percents.iter() {
 			let target_value = target_percent.value.saturating_mul_int(total_value);
-			let price = T::AssetPriceProvider::get_relative_price(*currency_id, T::StableCurrencyId::get())
-				.ok_or(Error::<T>::NoPrice)?;
+			let price = Self::price(*currency_id)?;
 			let target_amount = price
 				.reciprocal()
 				.ok_or(ArithmeticError::DivisionByZero)?
@@ -447,8 +466,7 @@ impl<T: Config> Pallet<T> {
 		let mut total_value: Balance = Zero::zero();
 		let mut allocations: BTreeMap<CurrencyId, CurrentAllocation> = BTreeMap::new();
 		for currency_id in currency_ids.into_iter() {
-			let price = T::AssetPriceProvider::get_relative_price(currency_id, T::StableCurrencyId::get())
-				.ok_or(Error::<T>::NoPrice)?;
+			let price = Self::price(currency_id)?;
 			let amount = T::Currency::total_balance(currency_id, &T::DaoAccount::get());
 			let value = price.saturating_mul_int(amount);
 			total_value = total_value.saturating_add(value);
@@ -505,8 +523,7 @@ impl<T: Config> Pallet<T> {
 			return Ok(());
 		}
 
-		let adao_price = T::AssetPriceProvider::get_relative_price(Token(ADAO), T::StableCurrencyId::get())
-			.ok_or(Error::<T>::NoPrice)?;
+		let adao_price = Self::price(Token(ADAO))?;
 		let adao_to_mint = adao_price.saturating_mul_int(amount);
 		let pallet_account = Self::account_id();
 		T::Currency::deposit(Token(ADAO), &pallet_account, adao_to_mint.unique_saturated_into())?;
@@ -544,8 +561,7 @@ impl<T: Config> Pallet<T> {
 			return Ok(());
 		}
 
-		let other_price = T::AssetPriceProvider::get_relative_price(Token(other), T::StableCurrencyId::get())
-			.ok_or(Error::<T>::NoPrice)?;
+		let other_price = Self::price(Token(other))?;
 		let max_other_to_add = T::Currency::free_balance(Token(other), &T::DaoAccount::get());
 		let max_other_to_add_amount = other_price.saturating_mul_int(max_other_to_add);
 

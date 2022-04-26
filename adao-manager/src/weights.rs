@@ -24,43 +24,50 @@
 use frame_support::{traits::Get, weights::{Weight, constants::RocksDbWeight}, dispatch::WeighData};
 use sp_std::marker::PhantomData;
 
-/// Weight functions needed for ecosystem_aqua_dao.
+/// Weight functions needed for ecosystem_adao_manager.
 pub trait WeightInfo {
-	fn create_subscription() -> Weight;
-	fn update_subscription() -> Weight;
-	fn close_subscription() -> Weight;
-	fn subscribe() -> Weight;
+	fn set_target_allocations(n: u32) -> Weight;
+	fn adjust_target_allocations(n: u32) -> Weight;
+	fn set_strategies() -> Weight;
+	fn on_initialize_with_rebalance() -> Weight;
+	fn on_initialize_without_rebalance() -> Weight;
 }
 
-/// Weights for ecosystem_aqua_dao using the Acala node and recommended hardware.
+/// Weights for ecosystem_adao_manager using the Acala node and recommended hardware.
 pub struct AcalaWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for AcalaWeight<T> {
-	fn create_subscription() -> Weight {
+	fn set_target_allocations(_n: u32) -> Weight {
 		0
 	}
-	fn update_subscription() -> Weight {
+	fn adjust_target_allocations(_n: u32) -> Weight {
 		0
 	}
-	fn close_subscription() -> Weight {
+	fn set_strategies() -> Weight {
 		0
 	}
-	fn subscribe() -> Weight {
+	fn on_initialize_with_rebalance() -> Weight {
+		0
+	}
+	fn on_initialize_without_rebalance() -> Weight {
 		0
 	}
 }
 
 // For backwards compatibility and tests
 impl WeightInfo for () {
-	fn create_subscription() -> Weight {
+	fn set_target_allocations(_n: u32) -> Weight {
 		0
 	}
-	fn update_subscription() -> Weight {
+	fn adjust_target_allocations(_n: u32) -> Weight {
 		0
 	}
-	fn close_subscription() -> Weight {
+	fn set_strategies() -> Weight {
 		0
 	}
-	fn subscribe() -> Weight {
+	fn on_initialize_with_rebalance() -> Weight {
+		0
+	}
+	fn on_initialize_without_rebalance() -> Weight {
 		0
 	}
 }
