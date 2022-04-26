@@ -18,7 +18,7 @@ use acala_primitives::{
 	TokenSymbol::{self, *},
 	TradingPair,
 };
-use module_support::{DEXManager, PriceProvider, DEXPriceProvider};
+use module_support::{DEXManager, DEXPriceProvider, PriceProvider};
 
 pub use module::*;
 
