@@ -168,9 +168,20 @@ impl PriceProvider<CurrencyId> for MockPriceSource {
 		match currency_id {
 			ACA => ACA_PRICE.with(|v| *v.borrow()),
 			AUSD => AUSD_PRICE.with(|v| *v.borrow()),
-			ADAO => ADAO_PRICE.with(|v| *v.borrow()),
 			ACA_AUSD_LP => ACA_AUSD_PRICE.with(|v| *v.borrow()),
 			ADAO_AUSD_LP => ADAO_AUSD_PRICE.with(|v| *v.borrow()),
+			_ => None,
+		}
+	}
+}
+impl DEXPriceProvider<CurrencyId> for MockPriceSource {
+	fn get_relative_price(base: CurrencyId, quote: CurrencyId) -> Option<Price> {
+		if quote != AUSD {
+			return None;
+		}
+
+		match base {
+			ADAO => ADAO_PRICE.with(|v| *v.borrow()),
 			_ => None,
 		}
 	}
@@ -193,6 +204,8 @@ impl module::Config for Runtime {
 	type Currency = Currencies;
 	type UpdateOrigin = EnsureSignedBy<Alice, AccountId>;
 	type AssetPriceProvider = MockPriceSource;
+	type AdaoPriceProvider = MockPriceSource;
+	type WeightInfo = ();
 }
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Runtime>;
