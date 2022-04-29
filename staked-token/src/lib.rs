@@ -54,37 +54,46 @@ pub mod module {
 		/// Inflate rate per `n` block: (n, rate)
 		type InflationRatePerNBlock: Get<(Self::BlockNumber, Rate)>;
 
+		/// Treasury share of minted/inflated ADAO token.
 		#[pallet::constant]
 		type TreasuryShare: Get<Ratio>;
 
+		/// Dao share of minted/inflated ADAO token.
 		#[pallet::constant]
 		type DaoShare: Get<Ratio>;
 
+		/// Default exchange rate for ADAO/SDAO.
 		#[pallet::constant]
 		type DefaultExchangeRate: Get<Rate>;
 
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
 
+		/// Treasury account.
 		#[pallet::constant]
 		type TreasuryAccount: Get<Self::AccountId>;
 
+		/// DAO account.
 		#[pallet::constant]
 		type DaoAccount: Get<Self::AccountId>;
 
+		/// Lock identifier for SDAO token vesting.
 		#[pallet::constant]
 		type LockIdentifier: Get<LockIdentifier>;
 
+		/// Maximum number of vestings.
 		#[pallet::constant]
 		type MaxVestingChunks: Get<u32>;
 
 		type WeightInfo: WeightInfo;
 	}
 
+	/// The fee rate to be deducted from redeem. Fees go to treasury account.
 	#[pallet::storage]
 	#[pallet::getter(fn unstake_fee_rate)]
 	pub type UnstakeFeeRate<T> = StorageValue<_, Rate, ValueQuery>;
 
+	/// The Bonding ledger.
 	pub type BondingLedgerOf<T> = bonding::BondingLedgerOf<Pallet<T>>;
 
 	/// Vesting ledger
@@ -136,6 +145,7 @@ pub mod module {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<T::BlockNumber> for Pallet<T> {
+		/// Inflating ADAO tokens periodically.
 		fn on_initialize(now: T::BlockNumber) -> Weight {
 			let (n, rate) = T::InflationRatePerNBlock::get();
 			// `rem_euclid` should be preferred but not supported by `BlockNumber`. `n`
@@ -154,6 +164,7 @@ pub mod module {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
+		/// Stake given `amount` of ADAO tokens and receive SDAO tokens.
 		#[pallet::weight(<T as Config>::WeightInfo::stake())]
 		#[transactional]
 		pub fn stake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
@@ -171,6 +182,7 @@ pub mod module {
 			Ok(())
 		}
 
+		/// Unstake given `amount` of SDAO tokens and receive ADAO tokens.
 		#[pallet::weight(<T as Config>::WeightInfo::unstake())]
 		#[transactional]
 		pub fn unstake(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
@@ -197,6 +209,7 @@ pub mod module {
 			Ok(())
 		}
 
+		/// Claim SDAO token vesting.
 		#[pallet::weight(<T as Config>::WeightInfo::claim())]
 		#[transactional]
 		pub fn claim(origin: OriginFor<T>) -> DispatchResult {
@@ -213,6 +226,7 @@ pub mod module {
 			Ok(())
 		}
 
+		/// Update the unstake fee rate. Requires `T::UpdateParamsOrigin` origin.
 		#[pallet::weight(<T as Config>::WeightInfo::update_unstake_fee_rate())]
 		#[transactional]
 		pub fn update_unstake_fee_rate(origin: OriginFor<T>, rate: Rate) -> DispatchResult {
@@ -295,6 +309,8 @@ impl<T: Config> Pallet<T> {
 }
 
 impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
+	/// Mint given `amount` of ADAO tokens on subscribe. ADAO tokens will be staked automatically and
+	/// received SDAO token will be in vesting.
 	#[transactional]
 	fn mint_for_subscription(who: &T::AccountId, amount: Balance, vesting_period: T::BlockNumber) -> DispatchResult {
 		// fixed_share = treasury_share + dao_share

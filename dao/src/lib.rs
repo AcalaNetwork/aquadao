@@ -34,16 +34,22 @@ pub use module::*;
 pub type SubscriptionId = u32;
 pub type DiscountRate = FixedI128;
 
+/// Subscription parameters and state.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct Subscription<BlockNumber> {
+	/// The currency id for payments.
 	pub currency_id: CurrencyId,
+	/// Vesting period for staked tokens on subscribe.
 	pub vesting_period: BlockNumber,
-	/// minimum subscription amount
+	/// minimum subscription amount.
 	pub min_amount: Balance,
-	/// At least this amount of subscribed currency per aDAO
+	/// At least this amount of subscribed currency per aDAO.
 	pub min_ratio: Ratio,
+	/// The maximum amount that can be subscribed.
 	pub amount: Balance,
+	/// Discount parameters.
 	pub discount: Discount<BlockNumber>,
+	/// Subscription state.
 	pub state: SubscriptionState<BlockNumber>,
 }
 
@@ -63,14 +69,20 @@ pub struct Discount<BlockNumber> {
 	pub dec_per_unit: DiscountRate,
 }
 
+/// The subscription state.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct SubscriptionState<BlockNumber> {
+	/// Total amount of sold subscriptions.
 	pub total_sold: Balance,
+	/// The block number on which the latest subscribing happened.
 	pub last_sold_at: BlockNumber,
+	/// The discount of the latest subscribing.
 	pub last_discount: DiscountRate,
 }
 
+/// SDAO token manager.
 pub trait StakedTokenManager<AccountId, BlockNumber> {
+	/// Mint given `amount` of ADAO token, stake and vesting for `vesting_period` blocks.
 	fn mint_for_subscription(
 		who: &AccountId,
 		subscription_amount: Balance,
@@ -90,6 +102,7 @@ pub mod module {
 
 		type StableCurrencyId: Get<CurrencyId>;
 
+		/// The required origin to create/update/close subscriptions.
 		type CreatingOrigin: EnsureOrigin<Self::Origin>;
 
 		/// Used for payment currency prices.
@@ -101,6 +114,7 @@ pub mod module {
 		/// The block number provider
 		type BlockNumberProvider: BlockNumberProvider<BlockNumber = Self::BlockNumber>;
 
+		/// The staked token manager.
 		type StakedToken: StakedTokenManager<Self::AccountId, Self::BlockNumber>;
 
 		#[pallet::constant]
@@ -109,10 +123,13 @@ pub mod module {
 		type WeightInfo: WeightInfo;
 	}
 
+	/// Track the next available subscription index.
 	#[pallet::storage]
 	#[pallet::getter(fn subscription_index)]
 	pub type SubscriptionIndex<T> = StorageValue<_, SubscriptionId, ValueQuery>;
 
+	/// Subscriptions. Will be remove if closed.
+	/// Subscriptions: map SubscriptionId -> Option<Subscription>
 	#[pallet::storage]
 	#[pallet::getter(fn subscriptions)]
 	pub type Subscriptions<T: Config> = StorageMap<_, Twox64Concat, SubscriptionId, SubscriptionOf<T>, OptionQuery>;
@@ -163,6 +180,7 @@ pub mod module {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
+		/// Create a subscription. Requires `T::CreatingOrigin` origin.
 		#[pallet::weight(<T as Config>::WeightInfo::create_subscription())]
 		#[transactional]
 		pub fn create_subscription(
@@ -203,6 +221,7 @@ pub mod module {
 			Ok(())
 		}
 
+		/// Update a subscription. Requires `T::CreatingOrigin` origin.
 		#[pallet::weight(<T as Config>::WeightInfo::update_subscription())]
 		#[transactional]
 		pub fn update_subscription(
@@ -240,6 +259,7 @@ pub mod module {
 			})
 		}
 
+		/// Close a subscription. Requires `T::ClosingOrigin` origin.
 		#[pallet::weight(<T as Config>::WeightInfo::close_subscription())]
 		#[transactional]
 		pub fn close_subscription(origin: OriginFor<T>, subscription_id: SubscriptionId) -> DispatchResult {
@@ -249,6 +269,7 @@ pub mod module {
 			Ok(())
 		}
 
+		/// Subscribe to given `subscription_id`, would fail if below minimum target amount.
 		#[pallet::weight(<T as Config>::WeightInfo::subscribe())]
 		#[transactional]
 		pub fn subscribe(
@@ -442,6 +463,7 @@ impl<T: Config> Pallet<T> {
 	}
 }
 
+/// Square root of a `FixedU128` number.
 fn fixed_u128_sqrt(n: FixedU128) -> Result<FixedU128, DispatchError> {
 	let inner = n.into_inner();
 	let inner_sqrt = inner.integer_sqrt();

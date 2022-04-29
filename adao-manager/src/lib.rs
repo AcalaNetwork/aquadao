@@ -28,18 +28,21 @@ mod tests;
 mod weights;
 pub use weights::WeightInfo;
 
+/// Allocation parameters.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, Default, RuntimeDebug, TypeInfo)]
 pub struct Allocation {
 	pub value: Balance,
 	pub range: Balance,
 }
 
+/// Allocation adjustment parameters.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct AllocationAdjustment {
 	pub value: i128,
 	pub range: i128,
 }
 
+/// Allocation percentages.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, Default, RuntimeDebug, TypeInfo)]
 pub struct AllocationPercent {
 	value: FixedU128,
@@ -47,6 +50,7 @@ pub struct AllocationPercent {
 	max: FixedU128,
 }
 
+/// The diff between allocation and current stats.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, Default, RuntimeDebug, TypeInfo)]
 pub struct AllocationDiff {
 	current: FixedU128,
@@ -56,6 +60,7 @@ pub struct AllocationDiff {
 	diff_amount: Amount,
 }
 
+/// Current allocation of a specific currency.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, Default, RuntimeDebug, TypeInfo)]
 struct CurrentAllocation {
 	amount: Balance,
@@ -63,6 +68,7 @@ struct CurrentAllocation {
 	percent: FixedU128,
 }
 
+/// The management strategy.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub struct Strategy {
 	pub kind: StrategyKind,
@@ -82,9 +88,12 @@ impl Strategy {
 	}
 }
 
+/// The management strategy kind.
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
 pub enum StrategyKind {
+	/// AUSD and ADAO LP.
 	LiquidityProvisionAusdAdao,
+	/// AUSD and other tokens LP.
 	LiquidityProvisionAusdOther(TokenSymbol),
 }
 
@@ -106,16 +115,21 @@ pub mod module {
 		/// Used for assets price except `ADAO`.
 		type AssetPriceProvider: PriceProvider<CurrencyId>;
 
+		/// Required origin for allocation and strategy params setting.
 		type UpdateOrigin: EnsureOrigin<Self::Origin>;
 
+		/// The DEX manager.
 		type DEX: DEXManager<Self::AccountId, CurrencyId, Balance>;
 
+		/// The period of each rebalance.
 		#[pallet::constant]
 		type RebalancePeriod: Get<Self::BlockNumber>;
 
+		/// Rebalance block offset.
 		#[pallet::constant]
 		type RebalanceOffset: Get<Self::BlockNumber>;
 
+		/// The DAO account.
 		#[pallet::constant]
 		type DaoAccount: Get<Self::AccountId>;
 
@@ -127,9 +141,13 @@ pub mod module {
 
 	#[pallet::error]
 	pub enum Error<T> {
+		/// Total allocation amount is zero.
 		ZeroTargetAllocation,
+		/// Cannot find target allocation for a given currency.
 		TargetAllocationNotFound,
+		/// No price from provider.
 		NoPrice,
+		/// Invalid trading pair for DEX.
 		InvalidTradingPair,
 	}
 
@@ -152,14 +170,20 @@ pub mod module {
 		},
 	}
 
+	/// Target allocation of a given currency ID.
+	/// TargetAllocations: value BTreeMap<CurrencyId, Allocation>
 	#[pallet::storage]
 	#[pallet::getter(fn target_allocations)]
 	pub type TargetAllocations<T> = StorageValue<_, BTreeMap<CurrencyId, Allocation>, ValueQuery>;
 
+	/// Target allocation percentage of a given currency ID, based on `TargetAllocations`.
+	/// TargetAllocationPercents: value BTreeMap<CurrencyId, AllocationPercent>
 	#[pallet::storage]
 	#[pallet::getter(fn target_allocation_percents)]
 	pub type TargetAllocationPercents<T> = StorageValue<_, BTreeMap<CurrencyId, AllocationPercent>, ValueQuery>;
 
+	/// The management strategies.
+	/// Strategies: value Vec<Strategy>
 	#[pallet::storage]
 	#[pallet::getter(fn strategies)]
 	pub type Strategies<T> = StorageValue<_, Vec<Strategy>, ValueQuery>;
@@ -170,6 +194,7 @@ pub mod module {
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<T::BlockNumber> for Pallet<T> {
+		/// Rebalance periodically.
 		fn on_initialize(now: T::BlockNumber) -> Weight {
 			// Checked arithmetic but not supported by `BlockNumber`. `T::RebalancePeriod`
 			// can't be zero in runtime config so it's safe.
@@ -206,6 +231,7 @@ pub mod module {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
+		/// Set target allocations. Target allocation percentages will be updated. Requires `T::UpdateOrigin`.
 		#[pallet::weight(<T as Config>::WeightInfo::set_target_allocations(targets.len().saturated_into()))]
 		#[transactional]
 		pub fn set_target_allocations(
@@ -232,6 +258,7 @@ pub mod module {
 			Self::update_target_allocation_percents()
 		}
 
+		/// Make adjustments to target allocations. Will update target allocation percentages. Requires `T::UpdateOrigin`.
 		#[pallet::weight(<T as Config>::WeightInfo::adjust_target_allocations(adjustments.len().saturated_into()))]
 		#[transactional]
 		pub fn adjust_target_allocations(
@@ -269,6 +296,7 @@ pub mod module {
 			Self::update_target_allocation_percents()
 		}
 
+		/// Set management strategies.
 		#[pallet::weight(<T as Config>::WeightInfo::set_strategies())]
 		#[transactional]
 		pub fn set_strategies(origin: OriginFor<T>, strategies: Vec<Strategy>) -> DispatchResult {
@@ -310,7 +338,7 @@ impl<T: Config> Pallet<T> {
 			Self::target_allocations()
 				.into_iter()
 				.for_each(|(currency_id, allocation)| {
-					// Checked that total vaule is not zero above, qed.
+					// Checked that total value is not zero above, qed.
 					let percent = FixedU128::saturating_from_rational(allocation.value, target_total);
 					let min = FixedU128::saturating_from_rational(
 						allocation.value.saturating_sub(allocation.range),
