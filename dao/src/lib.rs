@@ -103,7 +103,7 @@ pub mod module {
 		type StableCurrencyId: Get<CurrencyId>;
 
 		/// The required origin to create/update/close subscriptions.
-		type CreatingOrigin: EnsureOrigin<Self::Origin>;
+		type UpdateOrigin: EnsureOrigin<Self::Origin>;
 
 		/// Used for payment currency prices.
 		type AssetPriceProvider: PriceProvider<CurrencyId>;
@@ -180,7 +180,7 @@ pub mod module {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Create a subscription. Requires `T::CreatingOrigin` origin.
+		/// Create a subscription. Requires `T::UpdateOrigin` origin.
 		#[pallet::weight(<T as Config>::WeightInfo::create_subscription())]
 		#[transactional]
 		pub fn create_subscription(
@@ -192,7 +192,7 @@ pub mod module {
 			#[pallet::compact] amount: Balance,
 			discount: Discount<T::BlockNumber>,
 		) -> DispatchResult {
-			T::CreatingOrigin::ensure_origin(origin)?;
+			T::UpdateOrigin::ensure_origin(origin)?;
 
 			let subscription_id = SubscriptionIndex::<T>::try_mutate(|id| -> Result<SubscriptionId, DispatchError> {
 				let current_id = *id;
@@ -221,7 +221,7 @@ pub mod module {
 			Ok(())
 		}
 
-		/// Update a subscription. Requires `T::CreatingOrigin` origin.
+		/// Update a subscription. Requires `T::UpdateOrigin` origin.
 		#[pallet::weight(<T as Config>::WeightInfo::update_subscription())]
 		#[transactional]
 		pub fn update_subscription(
@@ -233,7 +233,7 @@ pub mod module {
 			amount: Option<Balance>,
 			discount: Option<Discount<T::BlockNumber>>,
 		) -> DispatchResult {
-			T::CreatingOrigin::ensure_origin(origin)?;
+			T::UpdateOrigin::ensure_origin(origin)?;
 
 			Subscriptions::<T>::try_mutate_exists(subscription_id, |maybe_subscription| -> DispatchResult {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
@@ -263,7 +263,7 @@ pub mod module {
 		#[pallet::weight(<T as Config>::WeightInfo::close_subscription())]
 		#[transactional]
 		pub fn close_subscription(origin: OriginFor<T>, subscription_id: SubscriptionId) -> DispatchResult {
-			T::CreatingOrigin::ensure_origin(origin)?;
+			T::UpdateOrigin::ensure_origin(origin)?;
 			Subscriptions::<T>::take(subscription_id).ok_or(Error::<T>::SubscriptionNotFound)?;
 			Self::deposit_event(Event::<T>::SubscriptionClosed { id: subscription_id });
 			Ok(())

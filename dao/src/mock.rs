@@ -196,7 +196,7 @@ impl Config for Runtime {
 	type Event = Event;
 	type Currency = Currencies;
 	type StableCurrencyId = StableCurrencyId;
-	type CreatingOrigin = EnsureRoot<AccountId>;
+	type UpdateOrigin = EnsureRoot<AccountId>;
 	type AssetPriceProvider = MockPriceProvider;
 	type AdaoPriceProvider = MockPriceProvider;
 	type BlockNumberProvider = MockBlockNumberProvider;
