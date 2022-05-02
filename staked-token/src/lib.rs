@@ -309,8 +309,8 @@ impl<T: Config> Pallet<T> {
 }
 
 impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
-	/// Mint given `amount` of ADAO tokens on subscribe. ADAO tokens will be staked automatically and
-	/// received SDAO token will be in vesting.
+	/// Mint given `amount` of ADAO tokens on subscribe. ADAO tokens will be staked automatically
+	/// and received SDAO token will be in vesting.
 	#[transactional]
 	fn mint_for_subscription(who: &T::AccountId, amount: Balance, vesting_period: T::BlockNumber) -> DispatchResult {
 		// fixed_share = treasury_share + dao_share

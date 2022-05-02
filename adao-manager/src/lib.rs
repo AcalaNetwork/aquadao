@@ -231,7 +231,8 @@ pub mod module {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Set target allocations. Target allocation percentages will be updated. Requires `T::UpdateOrigin`.
+		/// Set target allocations. Target allocation percentages will be updated. Requires
+		/// `T::UpdateOrigin`.
 		#[pallet::weight(<T as Config>::WeightInfo::set_target_allocations(targets.len().saturated_into()))]
 		#[transactional]
 		pub fn set_target_allocations(
@@ -258,7 +259,8 @@ pub mod module {
 			Self::update_target_allocation_percents()
 		}
 
-		/// Make adjustments to target allocations. Will update target allocation percentages. Requires `T::UpdateOrigin`.
+		/// Make adjustments to target allocations. Will update target allocation percentages.
+		/// Requires `T::UpdateOrigin`.
 		#[pallet::weight(<T as Config>::WeightInfo::adjust_target_allocations(adjustments.len().saturated_into()))]
 		#[transactional]
 		pub fn adjust_target_allocations(
