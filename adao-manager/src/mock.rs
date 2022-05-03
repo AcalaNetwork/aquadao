@@ -10,7 +10,10 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::{EnsureRoot, EnsureSignedBy};
-use module_support::{mocks::MockAddressMapping, Price};
+use module_support::{
+	mocks::{MockAddressMapping, MockStableAsset},
+	Price,
+};
 use orml_traits::parameter_type_with_key;
 use sp_core::H256;
 use sp_runtime::{
@@ -140,6 +143,7 @@ impl module_dex::Config for Runtime {
 	type ListingOrigin = EnsureSignedBy<Alice, AccountId>;
 	type ExtendedProvisioningBlocks = ExtendedProvisioningBlocks;
 	type OnLiquidityPoolUpdated = ();
+	type StableAsset = MockStableAsset<CurrencyId, Balance, AccountId, BlockNumber>;
 }
 
 thread_local! {
