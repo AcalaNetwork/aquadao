@@ -26,6 +26,7 @@ pub const ALICE: AccountId = AccountId32::new([1u8; 32]);
 pub const BOB: AccountId = AccountId32::new([2u8; 32]);
 pub const DAO_ACCOUNT: AccountId = AccountId32::new([10u8; 32]);
 pub const TREASURY_ACCOUNT: AccountId = AccountId32::new([20u8; 32]);
+pub const REWARD_ACCOUNT: AccountId = AccountId32::new([30u8; 32]);
 
 pub const ADAO_CURRENCY: CurrencyId = Token(TokenSymbol::ADAO);
 pub const SDAO_CURRENCY: CurrencyId = Token(TokenSymbol::SDAO);
@@ -122,7 +123,8 @@ parameter_types!(
 	pub DaoShare: Ratio = Ratio::saturating_from_rational(1, 10);
 	pub DaoDefaultExchangeRate: Rate = Rate::one();
 	pub DaoAccount: AccountId = DAO_ACCOUNT;
-	pub TreasuryAccount: AccountId = TREASURY_ACCOUNT;
+	pub FeeDestAccount: AccountId = TREASURY_ACCOUNT;
+	pub RewardDestAccount: AccountId = REWARD_ACCOUNT;
 	pub StakedTokenLockIdentifier: LockIdentifier = *b"aqu/vest";
 	pub MaxVestingChunks: u32 = 5;
 );
@@ -145,6 +147,22 @@ impl BlockNumberProvider for MockBlockNumberProvider {
 	}
 }
 
+thread_local! {
+	static DEPOSIT_REWARD: RefCell<(CurrencyId, Balance)> = RefCell::new((SDAO_CURRENCY, 0));
+}
+
+pub struct MockOnDepositReward;
+impl MockOnDepositReward {
+	pub fn deposit_reward() -> (CurrencyId, Balance) {
+		DEPOSIT_REWARD.with(|v| *v.borrow())
+	}
+}
+impl Happened<(CurrencyId, Balance)> for MockOnDepositReward {
+	fn happened(info: &(CurrencyId, Balance)) {
+		DEPOSIT_REWARD.with(|v| *v.borrow_mut() = *info);
+	}
+}
+
 impl Config for Runtime {
 	type Event = Event;
 	type Currency = Currencies;
@@ -155,10 +173,12 @@ impl Config for Runtime {
 	type DaoShare = DaoShare;
 	type DefaultExchangeRate = DaoDefaultExchangeRate;
 	type PalletId = AquaStakedTokenPalletId;
-	type TreasuryAccount = TreasuryAccount;
+	type FeeDestAccount = FeeDestAccount;
 	type DaoAccount = DaoAccount;
+	type RewardDestAccount = RewardDestAccount;
 	type LockIdentifier = StakedTokenLockIdentifier;
 	type MaxVestingChunks = MaxVestingChunks;
+	type OnDepositReward = MockOnDepositReward;
 	type WeightInfo = ();
 }
 

@@ -15,7 +15,7 @@ use sp_runtime::{
 };
 use sp_std::result::Result;
 
-use orml_traits::{MultiCurrency, MultiLockableCurrency};
+use orml_traits::{Happened, MultiCurrency, MultiLockableCurrency};
 
 use acala_primitives::{
 	bonding::{self, BondingController},
@@ -69,9 +69,9 @@ pub mod module {
 		#[pallet::constant]
 		type PalletId: Get<PalletId>;
 
-		/// Treasury account.
+		/// Account for fee collection.
 		#[pallet::constant]
-		type TreasuryAccount: Get<Self::AccountId>;
+		type FeeDestAccount: Get<Self::AccountId>;
 
 		/// DAO account.
 		#[pallet::constant]
@@ -84,6 +84,14 @@ pub mod module {
 		/// Maximum number of vestings.
 		#[pallet::constant]
 		type MaxVestingChunks: Get<u32>;
+
+		/// Account for treasury reward from to mint or inflation.
+		#[pallet::constant]
+		type RewardDestAccount: Get<Self::AccountId>;
+
+		/// Called when new SDAO treasury reward deposited to reward dest account from mint or
+		/// inflation. The reward amount is based on `T::TreasuryShare`.
+		type OnDepositReward: Happened<(CurrencyId, Balance)>;
 
 		type WeightInfo: WeightInfo;
 	}
@@ -203,7 +211,7 @@ pub mod module {
 			// payback ADAO
 			T::Currency::transfer(Token(ADAO), &Self::account_id(), &who, received)?;
 			// fee goes to treasury
-			T::Currency::transfer(Token(ADAO), &Self::account_id(), &T::TreasuryAccount::get(), fee)?;
+			T::Currency::transfer(Token(ADAO), &Self::account_id(), &T::FeeDestAccount::get(), fee)?;
 
 			Self::deposit_event(Event::<T>::Unstaked { who, amount, received });
 			Ok(())
@@ -269,8 +277,9 @@ impl<T: Config> Pallet<T> {
 		T::Currency::deposit(Token(ADAO), &Self::account_id(), mint)?;
 
 		// stake the treasury and DAO share
-		T::Currency::deposit(Token(SDAO), &T::TreasuryAccount::get(), treasury_staked)?;
 		T::Currency::deposit(Token(SDAO), &T::DaoAccount::get(), dao_staked)?;
+		T::Currency::deposit(Token(SDAO), &T::RewardDestAccount::get(), treasury_staked)?;
+		T::OnDepositReward::happened(&(Token(SDAO), treasury_staked));
 
 		//TODO: add treasury principle
 
@@ -340,8 +349,9 @@ impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
 
 		// mint & stake the treasury and DAO share
 		T::Currency::deposit(Token(SDAO), who, staked)?;
-		T::Currency::deposit(Token(SDAO), &T::TreasuryAccount::get(), treasury_staked)?;
 		T::Currency::deposit(Token(SDAO), &T::DaoAccount::get(), dao_staked)?;
+		T::Currency::deposit(Token(SDAO), &T::RewardDestAccount::get(), treasury_staked)?;
+		T::OnDepositReward::happened(&(Token(SDAO), treasury_staked));
 
 		// SDAO token vesting
 		let change = <Self as BondingController>::bond(&who, staked)?;

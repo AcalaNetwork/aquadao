@@ -61,7 +61,7 @@ fn unstake_works() {
 			assert_ok!(AquaStakedToken::unstake(RawOrigin::Signed(ALICE).into(), 10));
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &ALICE), 10);
 			assert_eq!(Currencies::free_balance(ADAO_CURRENCY, &ALICE), 90);
-			assert_eq!(Currencies::free_balance(ADAO_CURRENCY, &TreasuryAccount::get()), 10);
+			assert_eq!(Currencies::free_balance(ADAO_CURRENCY, &FeeDestAccount::get()), 10);
 			System::assert_has_event(Event::AquaStakedToken(crate::Event::Unstaked {
 				who: ALICE,
 				amount: 10,
@@ -151,8 +151,9 @@ fn inflation_works() {
 				130
 			);
 			// treasury, dao shares: 100 * share / exchange_rate = 100 * 0.1 / 3
-			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &TreasuryAccount::get()), 3);
+			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &RewardDestAccount::get()), 3);
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &DaoAccount::get()), 3);
+			assert_eq!(MockOnDepositReward::deposit_reward(), (SDAO_CURRENCY, 3));
 		});
 }
 
@@ -180,8 +181,9 @@ fn mint_for_subscription_works() {
 				orml_tokens::Error::<Runtime>::LiquidityRestrictions
 			);
 			// treasury, dao shares: 1_000 * share / exchange_rate = 1000 * 0.1 / 8
-			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &TreasuryAccount::get()), 12);
+			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &RewardDestAccount::get()), 12);
 			assert_eq!(Currencies::free_balance(SDAO_CURRENCY, &DaoAccount::get()), 12);
+			assert_eq!(MockOnDepositReward::deposit_reward(), (SDAO_CURRENCY, 12));
 		});
 }
 
