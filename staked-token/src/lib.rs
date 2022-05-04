@@ -320,14 +320,14 @@ impl<T: Config> Pallet<T> {
 			.reciprocal()
 			.unwrap_or_else(|| T::DefaultExchangeRate::get().reciprocal().unwrap())
 			.checked_mul_int(amount)
-			.ok_or(ArithmeticError::Overflow.into())
+			.ok_or_else(|| ArithmeticError::Overflow.into())
 	}
 
 	/// Get ADAO token amount from given SDAO `amount`, based on exchange rate.
 	fn from_staked(amount: Balance) -> BalanceResult {
 		Self::exchange_rate()
 			.checked_mul_int(amount)
-			.ok_or(ArithmeticError::Overflow.into())
+			.ok_or_else(|| ArithmeticError::Overflow.into())
 	}
 
 	pub fn account_id() -> T::AccountId {
@@ -372,9 +372,9 @@ impl<T: Config> StakedTokenManager<T::AccountId, T::BlockNumber> for Pallet<T> {
 		T::OnDepositReward::happened(&(Token(SDAO), treasury_staked));
 
 		// SDAO token vesting
-		let change = <Self as BondingController>::bond(&who, staked)?;
+		let change = <Self as BondingController>::bond(who, staked)?;
 		let unlock_at = T::BlockNumberProvider::current_block_number().saturating_add(vesting_period);
-		let _ = <Self as BondingController>::unbond(&who, staked, unlock_at)?;
+		let _ = <Self as BondingController>::unbond(who, staked, unlock_at)?;
 		if let Some(change) = change {
 			Self::deposit_event(Event::VestingAdded {
 				who: who.clone(),

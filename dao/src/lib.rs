@@ -302,7 +302,7 @@ pub mod module {
 				let subscription = maybe_subscription.as_mut().ok_or(Error::<T>::SubscriptionNotFound)?;
 				let now = T::BlockNumberProvider::current_block_number();
 				let (subscription_amount, last_discount) =
-					Self::subscription_amount(&subscription, payment_amount, now)?;
+					Self::subscription_amount(subscription, payment_amount, now)?;
 
 				ensure!(
 					subscription_amount >= subscription.min_amount,
@@ -391,11 +391,10 @@ impl<T: Config> Pallet<T> {
 				.checked_div(adao_accuracy)
 				.expect("Currency decimals cannot be zero; qed")
 				.unique_saturated_into();
-			let dec = discount
+			discount
 				.dec_per_unit
 				.checked_mul(&DiscountRate::checked_from_integer(total_sold_units).ok_or(ArithmeticError::Overflow)?)
-				.ok_or(ArithmeticError::Overflow)?;
-			dec
+				.ok_or(ArithmeticError::Overflow)?
 		};
 		// price_discount = min(max_discount, last_discount + discount_inc - discount_dec)
 		let price_discount = {
@@ -415,10 +414,9 @@ impl<T: Config> Pallet<T> {
 				.ok_or(ArithmeticError::Underflow)?;
 			// ratio is positive, as `discount` <= `discount.max`.
 			let ratio_fixed_u128 = Price::from_inner(ratio.into_inner().abs() as u128);
-			let discounted_price = adao_price
+			adao_price
 				.checked_mul(&ratio_fixed_u128)
-				.ok_or(ArithmeticError::Overflow)?;
-			discounted_price
+				.ok_or(ArithmeticError::Overflow)?
 		};
 
 		let payment_value = Price::checked_from_integer(payment)
@@ -449,8 +447,7 @@ impl<T: Config> Pallet<T> {
 				.ok_or(ArithmeticError::Underflow)?
 				.checked_div(&inc)
 				.ok_or(ArithmeticError::DivisionByZero)?;
-			let amount_u128 = Self::fixed_u128_to_adao_balance(amount)?;
-			amount_u128
+			Self::fixed_u128_to_adao_balance(amount)?
 		};
 		let max_amount = min_ratio
 			.reciprocal()

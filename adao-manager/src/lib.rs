@@ -337,10 +337,10 @@ impl<T: Config> Pallet<T> {
 	fn price(currency_id: CurrencyId) -> Result<FixedU128, DispatchError> {
 		if currency_id == Token(ADAO) {
 			T::AdaoPriceProvider::get_relative_price(Token(ADAO), T::StableCurrencyId::get())
-				.ok_or(Error::<T>::NoPrice.into())
+				.ok_or_else(|| Error::<T>::NoPrice.into())
 		} else {
 			T::AssetPriceProvider::get_relative_price(currency_id, T::StableCurrencyId::get())
-				.ok_or(Error::<T>::NoPrice.into())
+				.ok_or_else(|| Error::<T>::NoPrice.into())
 		}
 	}
 
@@ -503,17 +503,11 @@ impl<T: Config> Pallet<T> {
 
 	// Returns `(current_allocations, current_total_value)` if Ok.
 	fn current_allocations() -> Result<(BTreeMap<CurrencyId, CurrentAllocation>, Balance), DispatchError> {
-		let currency_ids = Self::target_allocations()
-			.keys()
-			.cloned()
-			.filter(|currency_id| {
-				(*currency_id != Token(TokenSymbol::ADAO)) && (*currency_id != Token(TokenSymbol::SDAO))
-			})
-			.collect::<Vec<CurrencyId>>();
-
 		let mut total_value: Balance = Zero::zero();
 		let mut allocations: BTreeMap<CurrencyId, CurrentAllocation> = BTreeMap::new();
-		for currency_id in currency_ids.into_iter() {
+		for currency_id in Self::target_allocations().keys().cloned().filter(|currency_id| {
+			(*currency_id != Token(TokenSymbol::ADAO)) && (*currency_id != Token(TokenSymbol::SDAO))
+		}) {
 			let price = Self::price(currency_id)?;
 			let amount = T::Currency::total_balance(currency_id, &T::DaoAccount::get());
 			let value = price.saturating_mul_int(amount);
