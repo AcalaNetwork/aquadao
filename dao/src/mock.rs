@@ -127,6 +127,7 @@ impl module_currencies::Config for Runtime {
 	type EVMBridge = ();
 	type SweepOrigin = EnsureRoot<AccountId>;
 	type OnDust = ();
+	type GasToWeight = ();
 }
 
 thread_local! {
